@@ -1,16 +1,36 @@
-# React + Vite
+# aimotion-web
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Frontend de AIMotion (React + Vite + Tailwind CSS). Requiere que `aimotion-server` esté corriendo para
+que el tamizaje y las alertas de riesgo se guarden y notifiquen de verdad — ver `../README.md`.
 
-Currently, two official plugins are available:
+## Instalación
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+npm install
+cp .env.example .env   # por defecto apunta a http://localhost:4000
+npm run dev
+```
 
-## React Compiler
+## Estructura
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```
+src/
+  lib/
+    riskEngine.js     Motor de reglas de detección de riesgo (crítico/alto)
+    scales.js         Definición y puntuación de PHQ-9 / GAD-7
+    botResponses.js   Contenido conversacional del asistente (delimitado, no diagnostica)
+    api.js            Cliente HTTP hacia aimotion-server
+    session.js        Identificador de sesión anónimo (sessionStorage)
+  components/
+    Layout/             Header y Footer
+    Home/, About/, Contact/    Secciones informativas
+    Screening/          Formularios PHQ-9 / GAD-7 (ScaleForm, ScreeningHub)
+    Chat/               Asistente conversacional + banner de escalamiento de riesgo
+    Professional/       Panel profesional (Human-in-the-Loop)
+```
 
-## Expanding the ESLint configuration
+## Scripts
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- `npm run dev` — servidor de desarrollo
+- `npm run build` — build de producción a `dist/`
+- `npm run lint` — ESLint
