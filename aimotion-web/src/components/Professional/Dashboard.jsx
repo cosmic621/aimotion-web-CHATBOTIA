@@ -5,6 +5,7 @@ import { getSession, getToken, clearSession } from '../../lib/authSession';
 import { connectSocket, disconnectSocket } from '../../lib/socket';
 import { RISK_CATEGORY_LABELS } from '../../lib/riskEngine';
 import Login from './Login';
+import UsersPanel from './UsersPanel';
 
 const SEVERITY_STYLES = {
   critico: 'bg-red-100 text-red-700 border-red-300',
@@ -132,6 +133,12 @@ export default function Dashboard() {
         >
           Tamizajes ({screenings.length})
         </button>
+        <button
+          onClick={() => setTab('usuarios')}
+          className={`px-5 py-2 rounded-full text-sm font-semibold ${tab === 'usuarios' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600'}`}
+        >
+          Usuarios y planes
+        </button>
       </div>
 
       {loading && <p className="text-gray-400 text-center py-10">Cargando...</p>}
@@ -213,6 +220,8 @@ export default function Dashboard() {
           ))}
         </div>
       )}
+
+      {tab === 'usuarios' && <UsersPanel />}
     </div>
   );
 }

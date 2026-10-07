@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { professionalsRepo } from '../db/professionalsRepo.js';
 import { verifyPassword } from '../auth/hash.js';
-import { signToken } from '../auth/jwt.js';
+import { signProfessionalToken } from '../auth/jwt.js';
 import { requireAuth } from '../auth/requireAuth.js';
 import { auditRepo } from '../db/auditRepo.js';
 
@@ -34,7 +34,7 @@ authRouter.post('/login', async (req, res) => {
     return res.status(401).json({ error: 'Credenciales inválidas' });
   }
 
-  const token = signToken(professional);
+  const token = signProfessionalToken(professional);
   await auditRepo.log({ professionalId: professional.id, action: 'login', resourceType: 'auth' });
 
   res.json({

@@ -4,8 +4,11 @@ import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import { config, isEmailConfigured, isSmsConfigured } from './src/config.js';
 import { authRouter } from './src/routes/auth.js';
+import { patientAuthRouter } from './src/routes/patientAuth.js';
 import { alertsRouter } from './src/routes/alerts.js';
 import { screeningsRouter } from './src/routes/screenings.js';
+import { chatRouter } from './src/routes/chat.js';
+import { treatmentPlansRouter } from './src/routes/treatmentPlans.js';
 import { pool } from './src/db/pool.js';
 import { verifyToken } from './src/auth/jwt.js';
 import { setIo } from './src/realtime.js';
@@ -41,8 +44,11 @@ app.get('/api/health', async (_req, res) => {
 });
 
 app.use('/api/auth', authRouter);
+app.use('/api/patient-auth', patientAuthRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/screenings', screeningsRouter);
+app.use('/api/chat', chatRouter);
+app.use('/api/treatment-plans', treatmentPlansRouter);
 
 app.use((err, _req, res, _next) => {
   console.error(err);
@@ -64,6 +70,7 @@ io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error('unauthorized'));
     const payload = verifyToken(token);
+    if (payload.type !== 'professional') return next(new Error('unauthorized'));
     socket.professional = { id: payload.sub, name: payload.name, role: payload.role };
     next();
   } catch {

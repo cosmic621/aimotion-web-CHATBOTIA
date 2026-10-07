@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { id: 'nosotros', label: 'Nosotros' },
   { id: 'tamizaje', label: 'Tamizaje' },
   { id: 'chat', label: '💜 Asistente de Apoyo' },
+  { id: 'mi-progreso', label: 'Mi Progreso' },
   { id: 'profesional', label: 'Panel Profesional' },
   { id: 'contacto', label: 'Contacto' },
 ];

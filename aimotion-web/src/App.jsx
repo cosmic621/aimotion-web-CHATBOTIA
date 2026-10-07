@@ -6,6 +6,7 @@ import About from './components/About/About';
 import ScreeningHub from './components/Screening/ScreeningHub';
 import ChatAssistant from './components/Chat/ChatAssistant';
 import Dashboard from './components/Professional/Dashboard';
+import MyPlans from './components/TreatmentPlan/MyPlans';
 import Contact from './components/Contact/Contact';
 import { getSessionId } from './lib/session';
 
@@ -22,6 +23,7 @@ const AIMOTIONWebsite = () => {
         {activeSection === 'nosotros' && <About />}
         {activeSection === 'tamizaje' && <ScreeningHub sessionId={sessionId} userName="" />}
         {activeSection === 'chat' && <ChatAssistant />}
+        {activeSection === 'mi-progreso' && <MyPlans />}
         {activeSection === 'profesional' && <Dashboard />}
         {activeSection === 'contacto' && <Contact />}
       </div>

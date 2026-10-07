@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Heart, Send, Shield } from 'lucide-react';
+import { Heart, Send, Shield, UserCircle2 } from 'lucide-react';
 import { getBotResponse, INTRO_MESSAGE } from '../../lib/botResponses';
 import { analyzeTextRisk, RISK_CATEGORY_LABELS } from '../../lib/riskEngine';
-import { postAlert } from '../../lib/api';
+import { postAlert, postChatMessage, getChatHistory } from '../../lib/api';
 import { getSessionId } from '../../lib/session';
+import { getPatientSession } from '../../lib/patientSession';
 import RiskBanner from './RiskBanner';
+import PatientAuth from '../Auth/PatientAuth';
 
 export default function ChatAssistant() {
   const [messages, setMessages] = useState([{ type: 'bot', text: INTRO_MESSAGE }]);
@@ -16,6 +18,10 @@ export default function ChatAssistant() {
   // profundo va, para que el bot pueda dar seguimiento real en vez de
   // responder cada mensaje de forma aislada. Ver src/lib/botResponses.js.
   const [conversationContext, setConversationContext] = useState({ topic: null, turn: 0 });
+  // Cuenta opcional: si hay sesion de paciente, el historial persiste entre
+  // visitas y queda trazabilidad real para el profesional (ver chatRepo.js).
+  const [patient, setPatient] = useState(() => getPatientSession()?.user || null);
+  const [showAuthPanel, setShowAuthPanel] = useState(false);
   const messagesEndRef = useRef(null);
   const sessionId = useRef(getSessionId()).current;
 
@@ -24,6 +30,29 @@ export default function ChatAssistant() {
     // solo hace scroll dentro del contenedor de mensajes.
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [messages, criticalRisk]);
+
+  // Si hay cuenta, carga el historial previo (de esta sesion o de cuentas
+  // anteriores) para que la conversacion continue donde quedo.
+  useEffect(() => {
+    if (!patient) return;
+    (async () => {
+      try {
+        const history = await getChatHistory(sessionId);
+        if (history.length > 0) {
+          setUserName(patient.name);
+          setMessages(history.map((m) => ({ type: m.role === 'user' ? 'user' : 'bot', text: m.content })));
+        }
+      } catch (err) {
+        console.error('No se pudo cargar el historial:', err.message);
+      }
+    })();
+  }, [patient]);
+
+  const persistMessage = (role, content, topic) => {
+    postChatMessage({ sessionId, role, content, topic }).catch((err) =>
+      console.error('No se pudo guardar el mensaje:', err.message)
+    );
+  };
 
   const escalate = async (risk, excerpt) => {
     try {
@@ -49,6 +78,7 @@ export default function ChatAssistant() {
     const userMsg = { type: 'user', text };
     setMessages((prev) => [...prev, userMsg]);
     setInputMessage('');
+    persistMessage('user', text, conversationContext.topic);
 
     const risk = analyzeTextRisk(text);
 
@@ -79,6 +109,7 @@ export default function ChatAssistant() {
           : '';
 
       setMessages((prev) => [...prev, { type: 'bot', text: botText + extra }]);
+      persistMessage('bot', botText + extra, topic);
       setIsTyping(false);
     }, 1200);
   };
@@ -121,9 +152,28 @@ export default function ChatAssistant() {
                   <Shield className="w-4 h-4" />
                   <span>Confidencial</span>
                 </div>
+                <button
+                  onClick={() => setShowAuthPanel((v) => !v)}
+                  className="flex items-center gap-2 bg-white/20 px-4 py-2 rounded-full hover:bg-white/30 transition"
+                >
+                  <UserCircle2 className="w-4 h-4" />
+                  <span>{patient ? patient.name : 'Guardar historial'}</span>
+                </button>
               </div>
             </div>
           </div>
+
+          {showAuthPanel && !patient && (
+            <div className="flex-shrink-0 p-4 bg-purple-50 border-b border-purple-100">
+              <PatientAuth
+                onSuccess={(user) => {
+                  setPatient(user);
+                  setShowAuthPanel(false);
+                }}
+                onDismiss={() => setShowAuthPanel(false)}
+              />
+            </div>
+          )}
 
           <div className="flex-1 min-h-0 overflow-y-auto p-8 space-y-6 bg-gradient-to-b from-purple-50/30 to-blue-50/30">
             {messages.map((msg, idx) => (

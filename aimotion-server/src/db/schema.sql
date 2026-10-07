@@ -56,3 +56,48 @@ CREATE TABLE IF NOT EXISTS audit_log (
   resource_id     TEXT,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Cuentas de paciente/usuario (opcionales: el chat tambien funciona de forma
+-- anonima por sesion). Crear una cuenta permite que el historial persista
+-- entre visitas y que el profesional le de seguimiento real a una persona,
+-- no solo a una sesion suelta.
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  email         TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Trazabilidad del chat: cada turno (mensaje de la persona + respuesta del
+-- bot) queda registrado, asociado a la cuenta si inicio sesion, o solo a la
+-- sesion anonima si no. Esto es lo que permite al profesional revisar como
+-- ha sido el uso del chatbot con una persona a lo largo del tiempo.
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id          TEXT PRIMARY KEY,
+  session_id  TEXT NOT NULL,
+  user_id     TEXT REFERENCES users(id),
+  role        TEXT NOT NULL CHECK (role IN ('user', 'bot')),
+  content     TEXT NOT NULL,
+  topic       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);
+
+-- Planes de tratamiento semanales: SIEMPRE creados/asignados por un
+-- profesional (professional_id NOT NULL), nunca generados de forma autonoma
+-- por el bot. El bot y el paciente solo pueden leerlos y marcar avance.
+CREATE TABLE IF NOT EXISTS treatment_plans (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users(id),
+  professional_id TEXT NOT NULL REFERENCES professionals(id),
+  condition       TEXT NOT NULL CHECK (condition IN ('depresion', 'ansiedad', 'estres', 'esquizofrenia')),
+  title           TEXT NOT NULL,
+  weeks           JSONB NOT NULL, -- [{ week_number, title, description, completed }]
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_treatment_plans_user ON treatment_plans(user_id);

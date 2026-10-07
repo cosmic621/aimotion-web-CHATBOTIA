@@ -1,8 +1,9 @@
-import { getToken, clearSession } from './authSession';
+import { getToken } from './authSession';
+import { getPatientToken } from './patientSession';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
-class AuthError extends Error {}
+export class AuthError extends Error {}
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
@@ -10,60 +11,133 @@ async function request(path, options = {}) {
     ...options,
   });
 
-  if (res.status === 401 && path !== '/api/auth/login') {
-    clearSession();
-    const body = await res.json().catch(() => ({}));
-    throw new AuthError(body.error || 'Sesión expirada, inicia sesión de nuevo');
-  }
-
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Error ${res.status}`);
+    const message = body.error || `Error ${res.status}`;
+    if (res.status === 401) throw new AuthError(message);
+    throw new Error(message);
   }
   return res.json();
 }
 
-function authHeaders() {
+function professionalAuthHeaders() {
   const token = getToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/**
- * Registra una alerta de riesgo y dispara el protocolo de escalamiento
- * (email/SMS al profesional) desde el backend. No requiere sesion: lo
- * dispara el propio chat de la persona usuaria.
- */
+function patientAuthHeaders() {
+  const token = getPatientToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+// ---------------------------------------------------------------------
+// Alertas y tamizajes (publico desde el chat; lectura requiere profesional)
+// ---------------------------------------------------------------------
+
 export function postAlert(payload) {
   return request('/api/alerts', { method: 'POST', body: JSON.stringify(payload) });
 }
 
-/** Guarda el resultado de una escala (PHQ-9 / GAD-7) para revision profesional. */
 export function postScreening(payload) {
   return request('/api/screenings', { method: 'POST', body: JSON.stringify(payload) });
 }
 
-/** Inicio de sesion del profesional. Devuelve { token, professional }. */
-export function login(email, password) {
-  return request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-}
-
-/** Panel profesional: requiere sesion (JWT en localStorage via authSession). */
 export function getAlerts() {
-  return request('/api/alerts', { headers: authHeaders() });
+  return request('/api/alerts', { headers: professionalAuthHeaders() });
 }
 
 export function getScreenings() {
-  return request('/api/screenings', { headers: authHeaders() });
+  return request('/api/screenings', { headers: professionalAuthHeaders() });
 }
 
 export function reviewAlert(id, reviewerNote) {
   return request(`/api/alerts/${id}/review`, {
     method: 'PATCH',
-    headers: authHeaders(),
+    headers: professionalAuthHeaders(),
     body: JSON.stringify({ reviewerNote }),
   });
 }
 
 export function getHealth() {
   return request('/api/health');
+}
+
+// ---------------------------------------------------------------------
+// Autenticacion de profesional
+// ---------------------------------------------------------------------
+
+export function login(email, password) {
+  return request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+}
+
+// ---------------------------------------------------------------------
+// Cuentas de paciente (opcional, registro publico)
+// ---------------------------------------------------------------------
+
+export function registerPatient(name, email, password) {
+  return request('/api/patient-auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) });
+}
+
+export function loginPatient(email, password) {
+  return request('/api/patient-auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+}
+
+// ---------------------------------------------------------------------
+// Chat: persistencia y trazabilidad
+// ---------------------------------------------------------------------
+
+/** Registra un turno del chat. Si hay sesion de paciente, queda asociado a la cuenta. */
+export function postChatMessage({ sessionId, role, content, topic }) {
+  return request('/api/chat/messages', {
+    method: 'POST',
+    headers: patientAuthHeaders(),
+    body: JSON.stringify({ sessionId, role, content, topic }),
+  });
+}
+
+/** Historial: si hay cuenta de paciente, trae todo; si no, trae solo el de esta sesion anonima. */
+export function getChatHistory(sessionId) {
+  return request(`/api/chat/messages?sessionId=${encodeURIComponent(sessionId)}`, {
+    headers: patientAuthHeaders(),
+  });
+}
+
+/** Panel profesional: usuarios con actividad de chat, para trazabilidad. */
+export function getChatUsers() {
+  return request('/api/chat/users', { headers: professionalAuthHeaders() });
+}
+
+export function getUserChatHistory(userId) {
+  return request(`/api/chat/users/${userId}/messages`, { headers: professionalAuthHeaders() });
+}
+
+// ---------------------------------------------------------------------
+// Planes de tratamiento semanales (SIEMPRE creados por un profesional)
+// ---------------------------------------------------------------------
+
+export function createTreatmentPlan({ userId, condition, title, weeks }) {
+  return request('/api/treatment-plans', {
+    method: 'POST',
+    headers: professionalAuthHeaders(),
+    body: JSON.stringify({ userId, condition, title, weeks }),
+  });
+}
+
+/** El paciente ve sus propios planes. */
+export function getMyTreatmentPlans() {
+  return request('/api/treatment-plans/mine', { headers: patientAuthHeaders() });
+}
+
+/** El profesional ve los planes de un paciente especifico. */
+export function getUserTreatmentPlans(userId) {
+  return request(`/api/treatment-plans/user/${userId}`, { headers: professionalAuthHeaders() });
+}
+
+/** El paciente marca una semana como completada/pendiente. */
+export function updateTreatmentPlanProgress(planId, weekNumber, completed) {
+  return request(`/api/treatment-plans/${planId}/progress`, {
+    method: 'PATCH',
+    headers: patientAuthHeaders(),
+    body: JSON.stringify({ weekNumber, completed }),
+  });
 }
