@@ -12,6 +12,10 @@ export default function ChatAssistant() {
   const [isTyping, setIsTyping] = useState(false);
   const [userName, setUserName] = useState('');
   const [criticalRisk, setCriticalRisk] = useState(null); // { category, notificationStatus }
+  // Memoria de la conversacion: de que tema se esta hablando y que tan
+  // profundo va, para que el bot pueda dar seguimiento real en vez de
+  // responder cada mensaje de forma aislada. Ver src/lib/botResponses.js.
+  const [conversationContext, setConversationContext] = useState({ topic: null, turn: 0 });
   const messagesEndRef = useRef(null);
   const sessionId = useRef(getSessionId()).current;
 
@@ -65,8 +69,9 @@ export default function ChatAssistant() {
     }
 
     setTimeout(() => {
-      const { text: botText, detectedName } = getBotResponse(text, userName);
+      const { text: botText, detectedName, topic, turn } = getBotResponse(text, userName, conversationContext);
       if (detectedName) setUserName(detectedName);
+      setConversationContext({ topic, turn });
 
       const extra =
         risk && risk.severity === 'alto'
