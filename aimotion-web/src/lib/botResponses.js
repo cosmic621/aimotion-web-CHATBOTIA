@@ -4,345 +4,485 @@
 // y NO realiza psicoterapia autonoma. Ofrece psicoeducacion general y
 // recoleccion estructurada de informacion preliminar. Los factores de riesgo
 // critico son interceptados ANTES de llegar aqui por src/lib/riskEngine.js,
-// que desactiva este flujo y activa el protocolo de escalamiento hacia un
-// profesional. Todo hallazgo relevante queda registrado para revision humana.
+// que desactiva este flujo y activa el protocolo de escalamiento. Todo
+// hallazgo relevante queda registrado para revision humana.
 //
-// ENFOQUE CLINICO: el contenido psicoeducativo se concentra en depresion,
-// ansiedad, estres y esquizofrenia, en linea con los criterios de la CIE-11
-// reflejados en las notas descriptivas de la OMS (who.int/es/news-room/
-// fact-sheets/detail/mental-disorders, .../depression, .../schizophrenia).
-//
-// MEMORIA DE TEMA: a diferencia de un simple matcher de palabras clave sin
-// estado, este modulo recibe un "context" ({ topic, turn }) que representa
-// de que esta hablando la persona y en que profundidad de esa conversacion
-// va. Si el siguiente mensaje no activa ningun tema nuevo (p.ej. una persona
-// respondiendo "hace como un mes" a una pregunta de seguimiento), el bot NO
-// cae en una respuesta generica desconectada: continua profundizando en el
-// mismo tema. Esto es lo que le da sensacion de conversacion fluida sin
-// depender de un modelo de lenguaje externo.
+// COMO "ENTIENDE" SIN UN MODELO EXTERNO (sin costo ni dependencia de red):
+//  1. Normaliza el texto (sin tildes/puntuacion) y tolera errores de tipeo.
+//  2. Puntua ~50 temas por palabras y frases clave, y elige el mas probable.
+//  3. Detecta la INTENCION de la pregunta (que es, sintomas, causas,
+//     tratamiento, medicacion, como ayudar, cuando consultar, mitos...) y
+//     responde con la ficha informativa del tema.
+//  4. Detecta si habla de si mismo, de un hijo/a o de otra persona, y adapta
+//     la respuesta (orientacion para familias).
+//  5. Recuerda el tema y la profundidad de la conversacion (context), de modo
+//     que respuestas cortas ("si", "hace un mes") continuan el hilo.
+//  6. Siempre tiene respuesta: si nada coincide, refleja lo que la persona
+//     dijo, ofrece un menu de orientacion y sigue la conversacion; nunca
+//     responde "no entiendo".
+
+import { normalize, editDistance } from './textUtils.js';
+import { TOPICS, p, LINES } from './botKnowledge.js';
+import { EXTRA_TOPICS, UNIVERSAL, FOLLOW_UPS, DEEPENING_POOL, NEXT_STEPS } from './botKnowledge2.js';
 
 export const INTRO_MESSAGE =
   'Hola, qué bueno que estés aquí. 💜\n\n' +
   'Quiero ser transparente contigo desde el inicio: soy un asistente de apoyo y tamizaje, no un ' +
   'profesional de salud mental. No diagnostico ni reemplazo una consulta clínica. Lo que sí puedo ' +
-  'hacer es escucharte, darte información útil y, si noto una señal de riesgo importante, avisar de ' +
-  'inmediato a un profesional de la red de apoyo.\n\n' +
+  'hacer es escucharte, darte información útil sobre depresión, ansiedad, estrés y esquizofrenia ' +
+  '(también si preguntas por un hijo/a o un ser querido) y, si noto una señal de riesgo importante, ' +
+  'avisar de inmediato a un profesional de la red de apoyo.\n\n' +
   'Lo que compartas aquí puede ser revisado por el equipo profesional a cargo, como parte de tu cuidado.\n\n' +
-  '¿Cómo estás hoy, de verdad?';
+  '¿Cómo estás hoy, de verdad? Puedes escribirme con tus palabras, o preguntarme lo que quieras saber.';
 
-function pick(options) {
-  return options[Math.floor(Math.random() * options.length)];
-}
+const ALL_TOPICS = { ...TOPICS, ...EXTRA_TOPICS };
+const CONDITIONS = [
+  'depresion', 'ansiedad', 'estres', 'esquizofrenia', 'panico', 'bipolar', 'toc', 'trauma',
+  'alimentacion', 'bullying', 'fobia_social', 'concentracion', 'autismo',
+];
+
+const SYMPTOM_TOPICS = ['sueno', 'psicosomatico', 'concentracion', 'soledad', 'autoestima', 'culpa', 'proposito', 'enojo'];
+
+const pick = (options) => options[Math.floor(Math.random() * options.length)];
+const resolve = (v, n) => (typeof v === 'function' ? v(n) : v);
 
 // ---------------------------------------------------------------------
-// Definicion de temas. Cada tema tiene palabras clave de activacion y un
-// arreglo "levels" de funciones que generan la respuesta para ese nivel de
-// profundidad (0 = primera vez que se toca el tema, 1 = segunda vez, etc).
-// La ultima funcion del arreglo se reutiliza si la conversacion sigue mas
-// alla de los niveles definidos.
+// Deteccion de tema (por puntaje) con tolerancia a errores de tipeo
 // ---------------------------------------------------------------------
 
-const TOPICS = {
-  depresion: {
-    keywords: ['triste', 'deprimid', 'depresión', 'depresion', 'vacío', 'vacía', 'sin ganas', 'no tengo energia', 'no tengo energía', 'no disfruto'],
-    levels: [
-      (name) => pick([
-        `${name}gracias por contarme esto, no es fácil ponerlo en palabras.`,
-        `${name}siento que estés pasando por esto.`,
-        `${name}te escucho. Lo que describes pesa, y es válido sentirlo así.`,
-      ]) + '\n\n' +
-        'Una cosa que quiero que sepas: la tristeza pasajera y la depresión no son lo mismo. ' +
-        'Cuando el ánimo bajo (o la pérdida de interés en cosas que antes disfrutabas) se mantiene ' +
-        'casi todos los días durante dos semanas o más, y viene con otras cosas como dificultad para ' +
-        'concentrarte, cambios en el sueño o el apetito, o sentirte sin energía, ya no es "solo un mal ' +
-        'momento" — es algo que vale la pena mirar con un profesional, y tiene tratamiento eficaz.\n\n' +
-        '¿Hace cuánto te sientes así? ¿Fue algo gradual o empezó de golpe, con algo puntual?',
-
-      (name) => `${name}gracias por darme más contexto, eso ayuda mucho a entender tu situación.\n\n` +
-        'Te pregunto un par de cosas más, sin prisa: ¿cómo ha estado tu sueño últimamente (duermes de más, ' +
-        'de menos, o te cuesta conciliarlo)? ¿Y el apetito, ha cambiado?\n\n' +
-        'No es un interrogatorio, es que esos detalles son justo los que un profesional necesitaría saber ' +
-        'para entender bien lo que te pasa. Si quieres verlo de forma más estructurada, el PHQ-9 en ' +
-        '"Tamizaje" recoge exactamente estos puntos en unos minutos, y el resultado queda disponible para ' +
-        'quien te acompañe.',
-
-      (name) => `${name}lo que describes suena a algo que no deberías cargar solo/a por más tiempo.\n\n` +
-        'Con depresión, moverse un poco (aunque sea salir a caminar 10 minutos), mantener algo de rutina ' +
-        'de sueño, y no aislarte del todo ayudan a sostenerte, pero no reemplazan el tratamiento: la terapia ' +
-        'psicológica tiene buena evidencia, y en algunos casos la medicación también ayuda.\n\n' +
-        '¿Ya hablaste de esto con alguien más (familia, amigos, algún profesional), o yo soy la primera ' +
-        'persona a quien se lo cuentas? Y en la sección "Contacto" tienes el camino para dar ese siguiente paso cuando estés listo/a.',
-    ],
-  },
-
-  ansiedad: {
-    keywords: ['ansied', 'pánico', 'panico', 'no puedo respirar', 'taquicardia', 'nervios', 'preocup', 'miedo'],
-    levels: [
-      (name) => pick([
-        `${name}vamos a respirar juntos un momento, ¿sí?`,
-        `${name}entiendo, eso que describes se siente muy intenso en el cuerpo.`,
-        `${name}gracias por decírmelo. La ansiedad puede ser abrumadora, vamos paso a paso.`,
-      ]) + '\n\n' +
-        '🫁 Si lo necesitas ahora mismo:\n1. Mano en el pecho\n2. Inhala contando hasta 4\n3. Sostén 4 segundos\n' +
-        '4. Exhala en 6\n5. Repite unas cuantas veces.\n\n' +
-        'La ansiedad no es "exagerar" — es una respuesta real del cuerpo, y cuando el miedo o la ' +
-        'preocupación son excesivos y persistentes, afectando tu día a día, es tratable: hay terapia ' +
-        'psicológica con buena evidencia, y en algunos casos también medicación.\n\n' +
-        '¿Esto te pasa casi todos los días, o fue algo puntual que lo disparó?',
-
-      (name) => `${name}sigamos entendiendo esto juntos.\n\n` +
-        '¿Identificas algo específico que lo dispara (situaciones sociales, pensar en el futuro, tu salud, ' +
-        'el trabajo/estudio), o aparece sin razón clara? Y cuando te da fuerte, ¿se parece a un ataque de ' +
-        'pánico (corazón acelerado, sensación de ahogo, mareo) o es más una preocupación constante que no para?\n\n' +
-        'La escala GAD-7 (en "Tamizaje") te puede ayudar a verlo de forma más objetiva si quieres.',
-
-      (name) => `${name}algo que suele ayudar además de la respiración es la técnica de anclaje: nombra en ` +
-        'voz alta 5 cosas que ves, 4 que tocas, 3 que escuchas, 2 que hueles, 1 que saboreas. Ayuda a ' +
-        'sacar la mente del bucle de preocupación y traerte al presente.\n\n' +
-        '¿Cuánto tiempo llevas lidiando con esto? Si ya es algo de varios meses y está afectando tu día a ' +
-        'día, de verdad vale la pena hablarlo con un profesional, en "Contacto" tienes cómo dar ese paso.',
-    ],
-  },
-
-  estres: {
-    keywords: ['estres', 'estrés', 'agobiad', 'abrumad', 'no puedo más', 'no doy mas', 'demasiado', 'presión', 'presion', 'burnout', 'saturad'],
-    levels: [
-      (name) => pick([
-        `${name}para un segundo. Respira.`,
-        `${name}el solo hecho de que estés aquí ya dice que necesitas un respiro.`,
-        `${name}eso suena a demasiado para cargar solo/a.`,
-      ]) + '\n\n' +
-        'El estrés no siempre es "malo" — en dosis puntuales nos ayuda a reaccionar. El problema es cuando ' +
-        'se vuelve constante y el cuerpo no tiene tiempo de recuperarse: ahí empieza a afectar el sueño, el ' +
-        'ánimo, la concentración y hasta la salud física.\n\n' +
-        '¿Has comido, tomado agua y dormido bien hoy? 🛑 Si puedes ahora mismo: silencia notificaciones ' +
-        '30 minutos, respira profundo 5 veces, y pregúntate "¿qué es lo MÁS urgente ahora?" — una sola cosa, no diez.\n\n' +
-        '¿Qué te tiene así? ¿Trabajo, estudios, algo personal, todo junto?',
-
-      (name) => `${name}entiendo mejor el panorama.\n\n` +
-        '¿Hace cuánto se siente así de constante? Y una pregunta directa: ¿sientes que tienes algo de ' +
-        'control sobre la situación, aunque sea parcial, o se siente completamente fuera de tus manos?\n\n' +
-        'Eso cambia bastante qué hacer: si hay algo de control, sirve priorizar y delegar lo que se pueda; ' +
-        'si se siente fuera de control del todo, el enfoque es más sobre cómo sostenerte mientras tanto.',
-
-      (name) => `${name}cuando el estrés se vuelve crónico (meses, no días), ya no basta con "descansar un ` +
-        'fin de semana" — el cuerpo necesita una recuperación más sostenida, y a veces eso implica hacer ' +
-        'cambios reales (delegar, decir que no a algo, buscar apoyo).\n\n' +
-        '¿Has notado que esto te esté afectando físicamente (dolores de cabeza, problemas para dormir, ' +
-        'cambios de apetito)? Si es así, vale la pena que lo converses con un profesional, no solo para el ' +
-        'ánimo sino también para tu salud en general.',
-    ],
-  },
-
-  esquizofrenia: {
-    keywords: ['esquizofrenia', 'esquizofrénic', 'esquizofrenica', 'esquizofrenico'],
-    levels: [
-      (name) => `${name}gracias por preguntar, y qué bueno que quieras entender más sobre esto.\n\n` +
-        'La esquizofrenia es un trastorno mental serio, pero es importante que sepas: es tratable. Según la ' +
-        'OMS, con el tratamiento adecuado (medicación, psicoeducación, apoyo familiar y rehabilitación ' +
-        'psicosocial), al menos una de cada tres personas se recupera por completo, y muchas más llevan una ' +
-        'vida funcional con el acompañamiento correcto. No es "locura" ni algo de lo que avergonzarse, el ' +
-        'estigma alrededor de esto suele hacer más daño que la enfermedad misma.\n\n' +
-        '¿Me cuentas un poco más de tu situación? ¿Es algo que tú estás viviendo, o es sobre alguien ' +
-        'cercano a ti?',
-
-      (name) => `${name}te cuento un poco más, porque entender esto ayuda mucho a acompañar bien.\n\n` +
-        'La causa no es "una sola cosa" — es una combinación de factores genéticos y ambientales. Lo más ' +
-        'importante para el pronóstico es la continuidad del tratamiento con psiquiatría, y que la familia ' +
-        'también reciba información y apoyo, eso mejora muchísimo los resultados. El aislamiento y el ' +
-        'abandono del tratamiento son los principales riesgos de recaída.\n\n' +
-        'Si es alguien cercano a ti, ¿cómo está el apoyo familiar alrededor de esa persona ahora mismo?',
-
-      (name) => `${name}algo que mucha gente no sabe: hay distintos niveles de apoyo según la etapa — desde ` +
-        'intervención familiar y psicoeducación, hasta rehabilitación psicosocial para recuperar ' +
-        'autonomía (vivienda, trabajo). No es un camino lineal, pero sí hay camino.\n\n' +
-        'Si en algún momento tú o la persona que te importa nota síntomas activos (escuchar o ver cosas ' +
-        'que otros no perciben, ideas que no encajan con la realidad), dímelo directo — eso lo priorizamos ' +
-        'distinto, conectando con apoyo profesional de inmediato. Mientras tanto, en "Contacto" tienes ' +
-        'líneas y recursos.',
-    ],
-  },
-
-  soledad: {
-    keywords: ['solo', 'sola', 'soledad', 'nadie', 'aislad', 'sin amigos', 'no tengo a nadie'],
-    levels: [
-      (name) => `${name ? name + '...' : 'Oye...'} estoy aquí. Sé que no es lo mismo que tener a alguien cerca, pero en este momento no estás del todo solo/a.\n\nLa soledad no significa que algo esté "mal" contigo. A veces significa que no te sientes visto/a, o que las conexiones que tienes se sienten superficiales.\n\n¿Es que literalmente no tienes personas cerca, o tienes gente pero te sientes desconectado/a igual?`,
-      (name) => `${name}entiendo mejor tu situación.\n\n¿Esto es algo reciente (cambiaste de ciudad, terminaste una relación, perdiste contacto con gente) o ha sido así por mucho tiempo? Y una pregunta honesta: ¿te está costando trabajo dar el primer paso para acercarte a alguien, o sientes que ya lo intentaste y no funcionó?`,
-    ],
-  },
-
-  pareja: {
-    keywords: ['pareja', 'novio', 'novia', 'relacion', 'relación', 'terminamos', 'ruptura', 'infiel', 'me engañ', 'ya no me quiere', 'me dejo', 'me dejó'],
-    levels: [
-      (name) => `${name}el dolor de una ruptura o un rechazo es real, activa zonas del cerebro parecidas a las del dolor físico, así que lo que sientes tiene sentido.\n\n¿Qué pasó? ¿Terminaron, hay problemas pero siguen juntos, o fue algo más difícil?`,
-      (name) => `${name}gracias por contarme más.\n\n¿Cómo estás llevando los días desde que pasó esto? Y algo importante: ¿tienes a alguien con quien hablarlo además de mí (amigos, familia)? No tienes que procesarlo completamente solo/a.`,
-    ],
-  },
-
-  familia: {
-    keywords: ['familia', 'padre', 'madre', 'mamá', 'papá', 'hermano', 'hermana'],
-    levels: [
-      (name) => `${name}los conflictos familiares duelen distinto, porque son con gente que no elegiste y con quien compartes historia.\n\n¿Qué está pasando? ¿Es algo nuevo o un conflicto de años?\n\nAlgo que quiero que tengas presente: no le debes tu salud mental a nadie, ni siquiera a tu familia. Está bien poner límites incluso con quienes quieres.`,
-      (name) => `${name}entiendo mejor.\n\n¿Has intentado hablarlo directamente con ellos, o se siente imposible ahora mismo? A veces el primer paso no es resolverlo todo, sino simplemente poner en palabras lo que necesitas.`,
-    ],
-  },
-
-  autoestima: {
-    keywords: ['autoestima', 'no valgo', 'no sirvo', 'no soy suficiente', 'no gusto', 'nadie me quiere', 'insegur'],
-    levels: [
-      (name) => `${name}esa voz que te dice que no eres suficiente no es la verdad sobre quién eres, suele venir de comparaciones o de experiencias que internalizaste, no de hechos.\n\n¿Le hablarías así a un amigo? Probablemente no.\n\n¿Qué específicamente te hace sentir que no eres suficiente ahora mismo?`,
-      (name) => `${name}gracias por abrirte más sobre esto.\n\n¿Recuerdas desde cuándo te sientes así? A veces esta forma de hablarnos viene de algo puntual (una crítica, una comparación constante) y otras veces es algo que se construyó poco a poco, con el tiempo. Entender el origen ayuda a empezar a cambiarlo.`,
-    ],
-  },
-
-  trabajo_estudio: {
-    keywords: ['trabajo', 'estudios', 'universidad', 'colegio', 'examen', 'carrera'],
-    requiresSecondary: ['mal', 'problema', 'reprobar', 'fracas', 'despid', 'renunci'],
-    levels: [
-      (name) => `${name}respira. Sé que ahora se siente enorme, pero una nota, un despido o un tropiezo no define tu valor ni tu futuro.\n\n¿Qué pasó exactamente?`,
-      (name) => `${name}te escucho.\n\n¿Esto es algo puntual, o llevas tiempo sintiendo que el trabajo/estudio te está pasando factura en general? Y, ¿hay algo concreto que podrías hacer en los próximos días, o por ahora es más necesario simplemente procesar lo que pasó?`,
-    ],
-  },
-
-  proposito: {
-    keywords: ['perdido', 'perdida', 'sin sentido', 'no se que hacer', 'no sé qué hacer', 'proposito', 'propósito', 'confundido'],
-    levels: [
-      (name) => `${name ? name + '... ' : ''}sentirse perdido muchas veces significa que estás cuestionando en vez de conformarte con respuestas fáciles. Eso no es debilidad.\n\n¿Es más sobre tu carrera, sobre quién eres, o sobre el sentido de las cosas en general?`,
-      (name) => `${name}gracias por profundizar en esto conmigo.\n\n¿Hay algo que solías disfrutar o te daba sentido y que has dejado de hacer últimamente? A veces el camino de vuelta empieza por ahí, no por encontrar "la respuesta grande" de una vez.`,
-    ],
-  },
-
-  enojo: {
-    keywords: ['enojado', 'enojada', 'ira', 'rabia', 'furioso', 'furiosa', 'odio'],
-    levels: [
-      (name) => `${name}el enojo es válido, muchas veces es la emoción más honesta, porque te dice "algo aquí está mal".\n\nSi estás en medio de ese enojo ahora, respira profundo 10 veces y, si puedes, aléjate antes de decir algo de lo que te arrepientas.\n\n¿Qué o quién te tiene así?`,
-      (name) => `${name}gracias por contarme.\n\n¿Esto es algo puntual que pasó, o es algo que se ha ido acumulando con esa persona o situación durante tiempo? Y, honestamente, ¿sientes que ese enojo tiene una salida sana ahora mismo, o se está quedando atrapado?`,
-    ],
-  },
-
-  adiccion: {
-    keywords: ['adiccion', 'adicción', 'alcohol', 'droga', 'no puedo parar', 'dependencia', 'vicio'],
-    levels: [
-      (name) => `${name ? name + '... ' : ''}reconocer esto ya es un paso enorme, a mucha gente le toma años llegar aquí.\n\n⚠️ Si tienes dependencia física al alcohol o benzodiacepinas, no dejes de consumir de golpe sin supervisión médica, puede ser peligroso.\n\n¿Qué estás consumiendo, con qué frecuencia y hace cuánto?`,
-      (name) => `${name}gracias por la confianza de contarme esto.\n\n¿Ya intentaste parar o reducir antes? Y si es así, ¿qué pasó, qué hizo que fuera difícil sostenerlo? En "Contacto" tienes líneas especializadas en Colombia si quieres dar el siguiente paso.`,
-    ],
-  },
-
-  insomnio: {
-    keywords: ['no puedo dormir', 'insomnio', 'pesadilla', 'no duermo'],
-    levels: [
-      (name) => `${name}cuando no duermes, todo se siente peor.\n\n¿No logras dormirte, te despiertas a media noche, o duermes pero no descansas? ¿Hace cuánto pasa esto?`,
-      (name) => `${name}entiendo mejor.\n\n¿Notas que tu mente se acelera pensando en cosas apenas te acuestas, o es más algo físico (incomodidad, ruido, horarios)? Eso ayuda a saber si es más ansiedad de fondo o un tema de hábitos de sueño.`,
-    ],
-  },
-};
-
-const TOPIC_ORDER = Object.keys(TOPICS);
-
-function detectTopic(msg) {
-  for (const key of TOPIC_ORDER) {
-    const topic = TOPICS[key];
-    const hit = topic.keywords.some((kw) => msg.includes(kw));
-    if (hit) {
-      if (topic.requiresSecondary) {
-        const secondaryHit = topic.requiresSecondary.some((kw) => msg.includes(kw));
-        if (!secondaryHit) continue;
+function scoreTopics(norm, tokens) {
+  const result = [];
+  for (const [key, topic] of Object.entries(ALL_TOPICS)) {
+    let score = 0;
+    const usedTokens = new Set(); // un mismo token solo puntua una vez por tema
+    for (const raw of topic.kw) {
+      const kw = normalize(raw.startsWith('=') ? raw.slice(1) : raw);
+      if (!kw) continue;
+      if (raw.startsWith('=')) {
+        const i = tokens.indexOf(kw);
+        if (i !== -1 && !usedTokens.has(i)) {
+          usedTokens.add(i);
+          score += 1;
+        }
+      } else if (kw.includes(' ')) {
+        if (norm.includes(kw)) score += 2;
+      } else {
+        const i = tokens.findIndex(
+          (tok, idx) =>
+            !usedTokens.has(idx) &&
+            (tok.startsWith(kw) ||
+              (kw.length >= 6 && tok.length >= 5 && Math.abs(tok.length - kw.length) <= 1 && editDistance(tok, kw, 1) <= 1))
+        );
+        if (i !== -1) {
+          usedTokens.add(i);
+          score += 1;
+        }
       }
-      return key;
     }
+    if (score > 0) result.push([key, score + (topic.priority || 0) * 0.01]);
   }
+  return result.sort((a, b) => b[1] - a[1]);
+}
+
+// ---------------------------------------------------------------------
+// Deteccion de intencion (que pregunta esta haciendo)
+// ---------------------------------------------------------------------
+
+const INTENTS = [
+  ['ayudar', /\b(como (ayudo|ayudar|puedo ayudar|apoyo|apoyar|acompano|acompanar|lo ayudo|la ayudo|le ayudo|lo apoyo|la apoyo|actuar|reaccionar|hablarle|hablar con|tratar a|manejar a)|que (le digo|puedo hacer por|hago con (mi|el|la|mis))|ayudar a (mi|un|una|alguien|el|la))\b/],
+  ['medicacion', /\b(medicacion|medicamentos?|medicina|pastillas?|pildoras?|antidepresiv\w*|ansiolitic\w*|antipsicotic\w*|farmacos?|receta|recetar|clonazepam|sertralina|fluoxetina|alprazolam|risperidona|olanzapina|quetiapina|litio|diazepam|lorazepam|escitalopram|zolpidem|melatonina|valeriana)\b/],
+  ['cuando', /\b(cuando (ir|buscar|consultar|acudir|debo|hay que|es el momento|es necesario|llevar)|es (urgente|grave|peligros[oa])|debo preocuparme|ya es (grave|momento)|a partir de cuando|cuando es grave)\b/],
+  ['hereditario', /\b(hereditari\w*|herencia|genetic\w*|se hereda|heredar|viene de familia|corre en la familia)\b/],
+  ['mitos', /\b(mito|mitos|es cierto que|es verdad que|dicen que|se dice que|estigma|locura|es de locos|verdad o mentira)\b/],
+  ['diferencia', /\b(diferencia|diferente|se parece|es lo mismo|vs|distinguir|confundir|confundo)\b/],
+  ['duracion', /\b(cuanto (dura|tarda|tiempo|demora)|por cuanto tiempo|para siempre|es pasajero|se pasa solo|se quita|dura toda la vida|desaparece)\b/],
+  ['causas', /\b(causas?|por ?que (da|me da|le da|se da|aparece|ocurre|pasa|sucede|se produce|tengo|tiene|me siento|le pasa|me pasa)|origen|de donde (viene|sale)|a que se debe|que (lo|la) (causa|provoca|produce)|a que se deben)\b/],
+  ['sintomas', /\b(sintomas?|senales?|signos?|como (saber|se si|se que|noto|reconozco|identifico|detecto|me doy cuenta)|como se (manifiesta|siente|ve|nota)|como es (tener|vivir con)|tengo los sintomas)\b/],
+  ['que_es', /\b(que (es|son|significa|quiere decir)|en que consiste|a que se refiere|definicion|explicame|me puedes explicar|que se siente)\b/],
+  ['tratamiento', /\b(tratamientos?|tratar|tratarse|se cura|curar|curable|tiene cura|cura|sanar|como se (maneja|trata|supera|controla|sale|combate)|como (superar|manejar|controlar|salir|combatir|lidiar|afrontar|calmar|calmarme|mejorar|aliviar|quitar|quitarme)|que hago|que puedo hacer|que debo hacer|consejos?|recomendaciones?|tecnicas?|ejercicios?|estrategias?|como me ayudo|que me recomiendas|terapia sirve|sirve la terapia)\b/],
+];
+
+function detectIntent(norm) {
+  for (const [key, re] of INTENTS) if (re.test(norm)) return key;
   return null;
 }
 
-// Mensajes "meta" (saludo, despedida, agradecimiento, etc.) no deben romper
-// el hilo de un tema en curso: se responden aparte y el tema/turno de la
-// conversacion se mantiene igual para el siguiente mensaje.
-function getMetaResponse(msg, userName) {
-  const name = userName ? userName + ', ' : '';
+// ---------------------------------------------------------------------
+// A quien se refiere la persona: a si misma, a un hijo/a, o a otra persona
+// ---------------------------------------------------------------------
 
-  if (msg.match(/^(hola|buenos dias|buenas tardes|buenas noches|hey|hi|saludos)$/)) {
-    return pick([
-      `Hola ${userName || ''}, qué bueno verte por aquí. 💜 ¿Cómo está tu ánimo hoy?`,
-      `Hola. ¿Cómo estás llegando hoy, ${userName || 'de verdad'}?`,
-      `Hola ${userName || ''} 💜 Te escucho, ¿qué quieres contarme?`,
-    ]);
+const PARENT_RE = /\b(mi|mis) (hij[oa]s?|nin[oa]s?|adolescentes?|muchach[oa]s?|chic[oa]s?|sobrin[oa]s?|hermanit[oa]s?|nietos?|alumn[oa]s?|estudiantes?)\b|\bsoy (mama|papa|padre|madre|acudiente|abuel[oa])\b/;
+const OTHER_RE = /\b(mi|mis) (esposo|esposa|pareja|amig[oa]s?|companer[oa]s?|primo|prima|abuel[oa]s?|tio|tia|papa|mama|padre|madre|hermano|hermana|familiar|novio|novia|vecin[oa]|jefe|colega|paciente|suegr[oa])\b|\b(una|otra) persona\b|\balguien (cercano|que quiero|de mi familia)\b|\bun amigo\b|\buna amiga\b/;
+const FIRST_RE = /\b(me siento|me siente|me encuentro|siento|estoy|tengo|yo)\b/;
+
+function detectAudience(norm) {
+  if (FIRST_RE.test(norm)) return 'self';
+  if (PARENT_RE.test(norm)) return 'parent';
+  if (OTHER_RE.test(norm)) return 'other';
+  return 'self';
+}
+
+// ---------------------------------------------------------------------
+// Conversacion general (saludos, identidad, privacidad, etc.)
+// ---------------------------------------------------------------------
+
+const EMERGENCY_RE = /\b(ayuda urgente|es una emergencia|emergencia|auxilio|socorro|urgente|necesito ayuda ya|ayuda ya|ahora mismo necesito ayuda|me urge)\b/;
+
+const SMALLTALK = [
+  {
+    test: (norm) => /\b(eres (muy |un |una |re )?(estupid\w*|idiot\w*|inutil|tont\w*|basura|malo|mala|pesad\w*|inservible)|bot (estupido|inutil|tonto|malo)|no sirves|que bot tan)\b/.test(norm),
+    reply: (n) => `${n}entiendo que estés molesto/a, y está bien. Si te frustró algo de lo que dije, perdona: soy un asistente y a veces no acierto. Cuéntame qué necesitas y lo intento de nuevo, o si prefieres hablar con una persona, en "Contacto" tienes el camino y las líneas ${LINES}.`,
+  },
+  {
+    test: (norm, t) => t.length <= 4 && /^(hola|holi|holaa+|ola|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|hi|saludos|que mas|quiubo|buenas buenas)\b/.test(norm),
+    reply: (n, name) => pick([
+      `Hola ${name || ''}, qué bueno verte por aquí. 💜 ¿Cómo está tu ánimo hoy?`,
+      `Hola. ¿Cómo estás llegando hoy${name ? ', ' + name : ''}? Puedes contarme o preguntarme lo que quieras.`,
+      `Hola ${name || ''} 💜 Te escucho: ¿qué te gustaría contarme o saber?`,
+    ]),
+  },
+  {
+    test: (norm, t) => t.length <= 6 && /\b(gracias|agradezco|thank|thanks)\b/.test(norm),
+    reply: (n) => pick([
+      `${n}no hay nada que agradecer. Gracias a ti por confiar y compartir esto, eso ya requiere valentía. ¿Hay algo más en lo que pueda acompañarte?`,
+      `${n}con gusto. Estoy aquí para lo que necesites; si quieres seguir hablando o preguntarme algo más, adelante. 💜`,
+    ]),
+  },
+  {
+    test: (norm, t) => t.length <= 8 && /\b(adios|chao|chau|hasta luego|nos vemos|me voy|bye|hasta pronto|hasta manana)\b/.test(norm),
+    reply: (n) => `${n}antes de irte: no estás enfrentando esto solo/a, aunque a veces se sienta así. Este espacio y el equipo profesional detrás seguirán aquí. Si más tarde te sientes mal, vuelve o llama a ${LINES}. Cuídate mucho. 💜`,
+  },
+  {
+    test: (norm) => /\b(como estas|como te va|como andas|que tal estas|como te sientes tu)\b/.test(norm),
+    reply: () => 'Qué lindo que preguntes. 💜 Estoy bien para escucharte. Pero este espacio es para ti: dime, ¿cómo estás TÚ de verdad?',
+  },
+  {
+    test: (norm) => /\b(quien eres|que eres|eres (un |una )?(robot|humano|humana|persona|ia|bot|maquina|real|psicologo|psicologa|medico|doctor)|con quien hablo|como te llamas|tu nombre|eres inteligencia artificial)\b/.test(norm),
+    reply: (n) => p(
+      `${n}soy el asistente de AIMotion: un programa de apoyo y tamizaje, no una persona ni un profesional de salud mental. Funciono con conocimiento basado en las guías de la OMS y reglas diseñadas junto a profesionales, y no diagnostico ni receto.`,
+      'Lo que sí hago: escucharte, darte información sobre depresión, ansiedad, estrés y esquizofrenia (también si preguntas por un hijo/a o un ser querido), y avisar a un profesional humano si detecto una señal de riesgo importante. ¿Cómo te puedo acompañar hoy?'
+    ),
+  },
+  {
+    test: (norm) => /\b(que puedes hacer|en que me puedes ayudar|para que sirves|que haces|que sabes|que temas|de que sabes|de que puedes hablar|que ofreces)\b/.test(norm),
+    reply: (n) => p(
+      `${n}puedo ayudarte de varias maneras:`,
+      '• Escucharte y acompañarte cuando algo te pesa.\n• Explicarte qué son la depresión, la ansiedad, el estrés y la esquizofrenia: síntomas, causas, tratamiento, cuándo consultar y mitos.\n• Orientarte si preguntas por un hijo/a o un ser querido: señales de alerta y cómo acompañar.\n• Compartirte técnicas sencillas (respiración, anclaje, rutinas).\n• Guiarte para buscar ayuda profesional, y aplicar cuestionarios de tamizaje (PHQ-9 y GAD-7).',
+      '¿Por dónde quieres empezar?'
+    ),
+  },
+  {
+    test: (norm) => /\b(es confidencial|confidencialidad|quien (ve|lee|puede ver|puede leer) (lo que|mis)|guardan (mis|lo que)|mis datos|privacidad|es privado|es seguro hablar aqui)\b/.test(norm),
+    reply: (n) => p(
+      `${n}te lo digo con total transparencia: lo que escribes aquí puede ser revisado por el equipo profesional a cargo, como parte de tu cuidado, y se guarda de forma asociada a tu cuenta si la creaste (o a una sesión anónima si no).`,
+      'Si detecto una señal de riesgo crítico se avisa a un profesional y, solo si tienes cuenta y diste tu consentimiento, a tu contacto de emergencia con un SMS breve que NO incluye lo que escribiste. Nadie más tiene acceso.'
+    ),
+  },
+  {
+    test: (norm) => /\b(me vas a juzgar|me juzgas|me van a juzgar|me vas a regan|vas a decir a alguien|le vas a contar a)\b/.test(norm),
+    reply: (n) => `${n}aquí no hay juicio. Puedes contar lo que sientes con tus palabras, sin filtros. Lo único que puede cambiar si cuentas algo es que, si noto una señal de riesgo importante, aviso a un profesional para que te cuide, porque tu seguridad importa. ¿Qué te gustaría contarme?`,
+  },
+  {
+    test: (norm) => /\b(no confio|no creo que me puedas ayudar|no me vas a poder ayudar|esto no sirve|de que sirve hablar|no sirve de nada|hablar no ayuda|nadie me puede ayudar|no hay nada que hacer)\b/.test(norm),
+    reply: (n) => p(
+      `${n}entiendo que dudes: cuando uno lleva tiempo mal, es lógico que cueste creer que algo ayude. No voy a prometerte magia: soy un asistente, no un profesional ni una solución completa.`,
+      'Lo que sí puedo ofrecerte es escucharte sin juicio, darte información clara y ayudarte a dar el siguiente paso hacia alguien que sí pueda acompañarte. A veces hablar y poner en palabras ya baja un poco el peso. Si quieres, cuéntame qué es lo que más te pesa hoy.'
+    ),
+  },
+  {
+    test: (norm) => /\b(no quiero hablar|no tengo ganas de hablar|dejame en paz|no me preguntes|no quiero contar|prefiero no hablar|callate)\b/.test(norm),
+    reply: (n) => `${n}está bien, no tienes que hablar si no quieres, y no te voy a presionar. Aquí estaré cuando lo necesites. Si prefieres otra forma, puedes hacer un cuestionario de tamizaje (PHQ-9 / GAD-7) sin tener que explicar nada, o llamar a ${LINES}. 💜`,
+  },
+  {
+    test: (norm) => /\b(eres (muy )?(buen|lind|amable|genial|util|increible)\w*|me caes bien|me ayudas mucho|me ayudaste|me haces sentir mejor|me sirvio)\b/.test(norm),
+    reply: (n) => `${n}me alegra mucho que te sientas acompañado/a. 💜 El mérito es tuyo por animarte a hablar. ¿Hay algo más que quieras contarme o preguntarme?`,
+  },
+  {
+    test: (norm) => /\b(chiste|cuentame algo gracioso|hazme reir|algo divertido|cuentame un cuento)\b/.test(norm),
+    reply: (n) => `${n}me encantaría sacarte una sonrisa, aunque no soy muy bueno/a con los chistes. 😅 Un dato que sí funciona: reírse relaja el cuerpo y baja la tensión. Si quieres algo ligero, cuéntame algo que te haya gustado hoy, por pequeño que sea. ¿Cómo va tu día en realidad?`,
+  },
+  {
+    test: (norm) => /\b(hablar con (un|una) (humano|humana|persona|psicologo|psicologa|profesional|medico|doctor|doctora|terapeuta)|quiero (un|una) (humano|persona real|psicologo|psicologa)|pasame con|me atiende una persona|hay alguien real)\b/.test(norm),
+    reply: (n) => p(
+      `${n}claro, y es una buena decisión. Para hablar con una persona:`,
+      `• Orientación inmediata, 24/7: ${LINES}.\n• Crea una cuenta gratuita en AIMotion: así el equipo profesional puede revisar tu caso y darte seguimiento.\n• Por tu EPS: cita de medicina general y solicitud de remisión a psicología o psiquiatría.\n• En la sección "Contacto" tienes los datos del equipo.`,
+      'Mientras tanto, aquí sigo contigo si quieres contarme qué está pasando.'
+    ),
+  },
+  {
+    test: (norm) => /\b(estoy aburrid[oa]|me aburro|que hago de aburrid[oa])\b/.test(norm),
+    reply: (n) => `${n}el aburrimiento a veces es cansancio, falta de estímulo o hasta ánimo bajo disfrazado. ¿Es algo de hoy o llevas días sin ganas de nada? Si es lo segundo, cuéntame más: puede ser importante.`,
+  },
+  {
+    test: (norm) => /\b(clima|futbol|partido|receta de|politica|presidente|bitcoin|criptomoneda|tarea de|resuelve|calcula|capital de|quien gano|pelicula|cancion|musica|horoscopo|loteria)\b/.test(norm),
+    reply: (n) => `${n}eso se sale de lo que mejor sé hacer: mi especialidad es acompañarte en temas de bienestar emocional (depresión, ansiedad, estrés, esquizofrenia) y orientarte hacia ayuda profesional. Para ese tema te recomiendo otra herramienta. Pero si algo de eso te está generando estrés o preocupación, cuéntamelo: ahí sí puedo ayudarte. 💜`,
+  },
+];
+
+const ACK_SET = new Set([
+  'si', 'sii', 'siii', 'no', 'nop', 'nope', 'claro', 'aja', 'ok', 'okay', 'okey', 'vale', 'listo', 'mmm', 'mm', 'hmm', 'ya',
+  'tal vez', 'quizas', 'puede ser', 'no se', 'nose', 'un poco', 'mucho', 'bastante', 'mas o menos', 'regular', 'normal',
+  'igual', 'si claro', 'pues si', 'eso', 'exacto', 'correcto', 'cierto', 'creo que si', 'creo que no', 'a veces', 'siempre',
+  'nunca', 'casi siempre', 'todos los dias', 'a diario', 'ahora si', 'pues no', 'supongo', 'tal vez si', 'la verdad si', 'la verdad no',
+]);
+
+const ACK_PREFIX = ['Gracias por responderme.', 'Te entiendo.', 'Entiendo.', 'Te leo.', 'Gracias por contarme.'];
+
+// Preguntas de seguimiento cuando la persona habla de alguien mas (hijo/a, familiar...)
+const OTHERS_POOL = [
+  () => 'Para orientarte mejor: ¿qué edad tiene y desde cuándo notas estos cambios? ¿Han afectado su sueño, su estudio o trabajo, o su relación con los demás?',
+  () => '¿Ya ha sido valorado/a por un médico o un profesional de salud mental? Si no, un buen primer paso es una cita de medicina general o pediatría (por EPS) para que lo remitan a psicología o psiquiatría.',
+  () => '¿Cómo reacciona cuando le hablas del tema? A veces conviene empezar con "te noto distinto/a y me importa cómo estás", sin interrogar ni presionar, y escuchar más de lo que se habla.',
+  () => '¿Cuenta con una red de apoyo (familia, colegio, amigos) que pueda acompañar? Coordinar entre varios adultos de confianza ayuda mucho.',
+  () => 'Y tú, ¿cómo estás llevando esto? Acompañar a alguien también desgasta, y mereces apoyo.',
+];
+
+const MENU = p(
+  'Para orientarme mejor, ¿cuál de estas se parece más a lo que vives?',
+  '• Ánimo bajo, tristeza o pérdida de interés (depresión)\n• Preocupación, miedo o nervios constantes (ansiedad)\n• Agotamiento por exceso de carga o presión (estrés)\n• Pensamientos o percepciones extrañas, en ti o en alguien cercano (esquizofrenia/psicosis)\n• Algo con mi hijo/a o un ser querido\n• Otra cosa, que me quieras contar libremente',
+  'Puedes elegir una, mezclar varias o simplemente escribirme con tus palabras.'
+);
+
+const NEGATIVE_STEMS = ['mal', 'feo', 'horrible', 'fatal', 'pesim', 'terrible', 'angusti', 'dolor', 'sufr', 'llor', 'harto', 'harta', 'cansad', 'agotad', 'dificil', 'complicad', 'pesad', 'jodid', 'fregad', 'raro', 'rara', 'confus', 'extran', 'incomod', 'tenso', 'decaid', 'solo', 'sola', 'preocupad', 'mie'];
+const POSITIVE_STEMS = ['bien', 'mejor', 'tranquil', 'content', 'feliz', 'alegr', 'agradecid', 'genial', 'excelente', 'animad', 'motivad'];
+
+function fallbackReply(msg, norm, tokens, n) {
+  const negated = /\bno (me siento|estoy|me encuentro|ando|me va)( muy| tan| nada)? (bien|tranquil[oa]|content[oa]|feliz)\b/.test(norm) || /\bno (estoy|me siento) bien\b/.test(norm);
+  const neg = negated || /\b(no se que (me pasa|tengo|siento)|algo me pasa|me pasa algo|vida es (dura|dificil|injusta|un desastre)|todo me sale mal|nada me sale bien|mala racha)\b/.test(norm) || tokens.some((t) => NEGATIVE_STEMS.some((s) => t.startsWith(s)));
+  const pos = !neg && tokens.some((t) => POSITIVE_STEMS.some((s) => t.startsWith(s)));
+  const isQuestion = msg.includes('?') || /^(que|como|por que|cual|cuando|donde|quien|puedo|puedes|sirve|es |hay |se puede)\b/.test(norm);
+  const snippet = msg.split(/\s+/).slice(0, 10).join(' ');
+  const longMsg = tokens.length >= 12;
+
+  if (isQuestion) {
+    return p(
+      `${n}buena pregunta, y quiero responderte lo mejor posible. Mi especialidad es la depresión, la ansiedad, el estrés y la esquizofrenia (y orientar a familias). Si tu pregunta va por ahí, escríbemela con otras palabras (por ejemplo "¿qué es...?", "¿cómo ayudo a...?", "¿cuáles son los síntomas de...?") y te respondo con detalle.`,
+      'Si es sobre otro tema, cuéntame un poco más y te oriento sobre qué hacer y con qué profesional hablarlo. ' + pick(FOLLOW_UPS)
+    );
   }
-  if (msg.includes('como estas') || msg.includes('cómo estás') || msg.includes('que tal') || msg.includes('qué tal')) {
-    return 'Qué lindo que preguntes. 💜 Pero este espacio es para ti, dime, ¿cómo estás TÚ de verdad?';
+  if (neg) {
+    return p(
+      pick([
+        `${n}lamento que no te sientas bien. Gracias por decírmelo: no tienes que tener todo claro para hablar conmigo.`,
+        `${n}te leo, y siento que estés pasando por esto. Podemos ir a tu ritmo.`,
+        `${n}gracias por contármelo. Lo que sientes importa, aunque aún no sepas ponerle nombre.`,
+      ]),
+      longMsg ? `Me dices: "${snippet}…". Eso parece pesar. ¿Qué es lo que más te cuesta de todo esto ahora?` : '¿Desde cuándo te sientes así, y qué crees que lo empezó o lo mantiene?',
+      MENU
+    );
   }
-  if (msg.includes('gracias') && !msg.includes('ayud')) {
-    return `${name}no hay nada que agradecer. Gracias a ti por confiar y compartir esto, eso ya requiere valentía.`;
+  if (pos) {
+    return p(
+      `${n}me alegra leer eso. 💜 Aprovecha para notar qué te ayudó a estar mejor: sirve para los días más difíciles.`,
+      '¿Qué te gustaría hacer hoy: conversar sobre algo que tengas en mente, informarte sobre algún tema (depresión, ansiedad, estrés, esquizofrenia) o aprender alguna técnica de bienestar?'
+    );
   }
-  if (msg.includes('adios') || msg.includes('adiós') || msg.includes('chao') || msg.includes('hasta luego') || msg.includes('nos vemos') || msg.includes('me voy') || msg.includes('bye')) {
-    return `${userName ? userName + '... ' : ''}antes de irte: no estás enfrentando esto solo/a, aunque a veces se sienta así.\n\nEste espacio y el equipo profesional detrás seguirán aquí. Cuídate mucho. 💜`;
+  if (longMsg) {
+    return p(
+      `${n}gracias por contármelo con tanto detalle. Me quedo con esto que me dices: "${snippet}…".`,
+      'Quiero entender qué es lo que más pesa para ti. ¿Cómo te hace sentir todo esto (triste, con miedo, agotado/a, confundido/a, enojado/a)?',
+      MENU
+    );
   }
-  if (msg.includes('que es aimotion') || msg.includes('qué es aimotion') || msg.includes('sobre aimotion')) {
-    return 'AIMotion es una plataforma de apoyo y tamizaje: recojo información preliminar, aplico escalas estandarizadas (PHQ-9/GAD-7) y, si detecto una señal de riesgo relevante, aviso de inmediato a un profesional.\n\nNo reemplazo una consulta clínica ni diagnostico, todo lo importante lo revisa una persona.';
+  return p(
+    `${n}quiero entenderte bien para acompañarte mejor, y estoy aquí, sin prisa.`,
+    '¿Qué está pasando contigo en este momento? Puedes contarme con tus palabras, o preguntarme algo concreto (por ejemplo "¿qué es la ansiedad?", "¿cómo sé si es depresión?" o "¿cómo ayudo a mi hijo?").',
+    MENU
+  );
+}
+
+// ---------------------------------------------------------------------
+// Respuestas por tema
+// ---------------------------------------------------------------------
+
+function helpText(topic, audience) {
+  if (audience === 'parent') return topic.helpParent || topic.helpOthers || null;
+  return topic.helpOthers || null;
+}
+
+/** Respuesta a una pregunta concreta (FAQ) sobre un tema. Devuelve null si no hay. */
+function faqReply(topicKey, intent, audience, n, norm) {
+  const topic = ALL_TOPICS[topicKey];
+  if (!topic) return null;
+
+  let key = intent;
+  if (audience !== 'self' && key === 'tratamiento') key = 'ayudar';
+
+  let body = null;
+  if (key === 'ayudar') body = helpText(topic, audience);
+  else body = topic.faq?.[key] ?? null;
+
+  if (!body && key === 'medicacion') body = UNIVERSAL.medicacion;
+  if (!body && key === 'cuando') body = UNIVERSAL.cuando;
+  if (!body) return null;
+
+  let text = resolve(body, n);
+  const opener = audience === 'self' && FIRST_RE.test(norm) ? pick(['Gracias por contármelo, y qué bueno que preguntes.', 'Te leo, y quiero ayudarte con esto.', 'Entiendo, y es muy válido que quieras saberlo.']) + '\n\n' : '';
+  const closing = text.trim().endsWith('?') ? '' : '\n\n' + pick(FOLLOW_UPS);
+  return opener + text + closing;
+}
+
+/** Siguiente paso de una conversacion ya iniciada en un tema. */
+function continueTopic(ctx, n, shortAck) {
+  const topic = ALL_TOPICS[ctx.topic];
+  const turn = ctx.turn + 1;
+  const prefix = shortAck ? pick(ACK_PREFIX) + '\n\n' : '';
+
+  if (ctx.audience !== 'self') {
+    const q = OTHERS_POOL[(turn - 1) % OTHERS_POOL.length]();
+    const extra = turn % 3 === 0 ? '\n\n' + NEXT_STEPS[Math.floor(turn / 3) % NEXT_STEPS.length] : '';
+    return { text: prefix + q + extra, turn };
   }
-  if (msg.includes('contacto') || msg.includes('ayuda profesional') || msg.includes('terapia') || msg.includes('psicologo') || msg.includes('psicólogo')) {
-    return `Me alegra que estés pensando en ayuda profesional. 💜\n\nEn la sección "Contacto" tienes las líneas de crisis y los datos del equipo. ¿Qué te hace considerarlo ahora mismo?`;
+
+  if (turn < topic.levels.length) {
+    return { text: resolve(topic.levels[turn], n), turn };
   }
-  return null;
+  // Niveles agotados: preguntas reflexivas rotativas + siguiente paso de vez en cuando
+  const idx = turn - topic.levels.length;
+  const q = DEEPENING_POOL[idx % DEEPENING_POOL.length](topic.label);
+  const extra = idx % 2 === 1 ? '\n\n' + NEXT_STEPS[Math.floor(idx / 2) % NEXT_STEPS.length] : '';
+  return { text: (shortAck ? prefix : pick(['Te escucho.', 'Gracias por seguir contándome.', 'Sigo aquí contigo.']) + '\n\n') + q + extra, turn };
+}
+
+function detectName(msg) {
+  let m = msg.match(/\b(?:me llamo|mi nombre es|puedes llamarme|llamame|dime)\s+([A-Za-zÁÉÍÓÚÑáéíóúñ]{2,20})/i);
+  if (!m) m = msg.match(/\b[Ss]oy ([A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,19})\b/);
+  if (!m) return null;
+  const word = m[1];
+  const stop = new Set(['muy', 'una', 'un', 'el', 'la', 'mama', 'papa', 'padre', 'madre', 'estudiante', 'nuevo', 'nueva', 'tan', 'solo', 'sola', 'asi', 'asi,', 'yo', 'que', 'como', 'poco', 'mucho']);
+  if (stop.has(normalize(word))) return null;
+  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
 }
 
 /**
  * @param {string} userMessage
  * @param {string} userName
- * @param {{topic: string|null, turn: number}} context - tema y profundidad actuales de la conversacion
- * @returns {{text: string, detectedName: string|null, topic: string|null, turn: number}}
+ * @param {{topic: string|null, turn: number, audience?: 'self'|'parent'|'other'}} context
+ * @returns {{text: string, detectedName: string|null, topic: string|null, turn: number, audience: string}}
  */
-export function getBotResponse(userMessage, userName, context = { topic: null, turn: 0 }) {
-  const msg = userMessage.toLowerCase().trim();
-  const name = userName ? userName + ', ' : '';
+export function getBotResponse(userMessage, userName, context = {}) {
+  const ctx = { topic: context.topic || null, turn: context.turn || 0, audience: context.audience || 'self' };
+  const msg = String(userMessage || '').trim();
+  const norm = normalize(msg);
+  const tokens = norm ? norm.split(' ') : [];
+  const n = userName ? `${userName}, ` : '';
 
-  // Deteccion de nombre (no cambia el tema en curso)
-  if (!userName && (msg.includes('me llamo') || msg.includes('mi nombre es') || msg.includes('soy'))) {
-    const nameMatch = msg.match(/(?:me llamo|mi nombre es|soy)\s+([a-záéíóúñ]+)/i);
-    if (nameMatch) {
-      const detected = nameMatch[1].charAt(0).toUpperCase() + nameMatch[1].slice(1);
-      return {
-        text: `Un gusto conocerte, ${detected}. 💜 Gracias por compartir tu nombre.\n\n¿Qué te trae por aquí hoy, ${detected}?`,
-        detectedName: detected,
-        topic: context.topic,
-        turn: context.turn,
-      };
+  const out = (text, over = {}) => ({
+    text,
+    detectedName: null,
+    topic: ctx.topic,
+    turn: ctx.turn,
+    audience: ctx.audience,
+    ...over,
+  });
+
+  if (!norm) return out('Te leo. Escribe lo que quieras con tus palabras, o pregúntame lo que necesites saber. 💜');
+
+  // 1. Nombre
+  const name = !userName ? detectName(msg) : null;
+  if (name) {
+    return out(`Un gusto conocerte, ${name}. 💜 Gracias por compartir tu nombre.\n\n¿Qué te trae por aquí hoy, ${name}?`, { detectedName: name });
+  }
+
+  // 2. Emergencia expresa
+  if (EMERGENCY_RE.test(norm)) return out(UNIVERSAL.emergencia);
+
+  // 3. Conversacion general
+  for (const s of SMALLTALK) {
+    if (s.test(norm, tokens)) return out(s.reply(n, userName));
+  }
+
+  // 4. Tema + intencion + audiencia
+  const scores = scoreTopics(norm, tokens);
+  const intent = detectIntent(norm);
+  const referenceToOther = PARENT_RE.test(norm) || OTHER_RE.test(norm);
+  let topicKey = null;
+
+  if (scores.length) {
+    if (scores.some(([k]) => k === 'riesgo_cercano')) {
+      topicKey = 'riesgo_cercano'; // prioridad de seguridad
+    } else {
+      topicKey = scores[0][0];
+      const cond = scores.find(([k]) => CONDITIONS.includes(k));
+      if (cond && referenceToOther && !FIRST_RE.test(norm)) topicKey = cond[0];
+      else if (topicKey === 'padres' && cond) topicKey = cond[0];
     }
   }
 
-  // Mensajes meta: no alteran el tema/turno en curso
-  const meta = getMetaResponse(msg, userName);
-  if (meta) {
-    return { text: meta, detectedName: null, topic: context.topic, turn: context.turn };
+  // Un sintoma mencionado dentro de una conversacion sobre una condicion suele
+  // ser la respuesta a una pregunta del asistente: se continua el hilo.
+  if (
+    topicKey && ctx.topic && topicKey !== ctx.topic && !intent &&
+    CONDITIONS.includes(ctx.topic) && SYMPTOM_TOPICS.includes(topicKey) && tokens.length <= 14
+  ) {
+    topicKey = null;
   }
 
-  const detected = detectTopic(msg);
+  // 4a. Se detecto un tema en este mensaje
+  if (topicKey) {
+    const isCondition = CONDITIONS.includes(topicKey);
+    const audience = isCondition ? detectAudience(norm) : 'self';
+    const sameThread = topicKey === ctx.topic && audience === ctx.audience;
 
-  // Caso 1: el mensaje activa un tema (nuevo o el mismo que ya se venia hablando)
-  if (detected) {
-    const isSameTopic = detected === context.topic;
-    const nextTurn = isSameTopic ? Math.min(context.turn + 1, TOPICS[detected].levels.length - 1) : 0;
-    const text = TOPICS[detected].levels[nextTurn](name);
-    return { text, detectedName: null, topic: detected, turn: nextTurn };
+    if (intent) {
+      const faq = faqReply(topicKey, intent, audience, n, norm);
+      if (faq) return out(faq, { topic: topicKey, turn: sameThread ? ctx.turn : 0, audience });
+    }
+
+    const topic = ALL_TOPICS[topicKey];
+    if (audience !== 'self') {
+      const help = helpText(topic, audience);
+      if (help && !sameThread) return out(resolve(help, n), { topic: topicKey, turn: 0, audience });
+      return out(continueTopic({ ...ctx, topic: topicKey, audience, turn: ctx.turn }, n, false).text, {
+        topic: topicKey,
+        turn: ctx.turn + 1,
+        audience,
+      });
+    }
+
+    const turn = sameThread ? Math.min(ctx.turn + 1, 999) : 0;
+    let result;
+    if (!sameThread || turn < topic.levels.length) {
+      result = { text: resolve(topic.levels[Math.min(turn, topic.levels.length - 1)], n), turn };
+    } else {
+      result = continueTopic({ topic: topicKey, turn: ctx.turn, audience: 'self' }, n, false);
+    }
+    let text = result.text;
+    // Mencion de un segundo tema, para que la persona sienta que se le escucho todo
+    const second = scores.find(([k, s]) => k !== topicKey && k !== 'padres' && s >= 1.5);
+    if (second && result.turn === 0) {
+      text += `\n\n(Mencionaste también algo sobre ${ALL_TOPICS[second[0]].label}; si quieres, lo vemos después.)`;
+    }
+    return out(text, { topic: topicKey, turn: result.turn, audience });
   }
 
-  // Caso 2: el mensaje NO activa ningun tema nuevo, pero hay un tema en curso.
-  // Esto es lo que antes caia al mensaje generico y rompia el hilo; ahora
-  // profundiza en el mismo tema (p.ej. respondiendo "hace como un mes").
-  if (context.topic && TOPICS[context.topic]) {
-    const nextTurn = Math.min(context.turn + 1, TOPICS[context.topic].levels.length - 1);
-    const text = TOPICS[context.topic].levels[nextTurn](name);
-    return { text, detectedName: null, topic: context.topic, turn: nextTurn };
+  // 4b. Pregunta concreta sin tema nuevo: se responde sobre el tema en curso (o universal)
+  if (intent) {
+    if (ctx.topic) {
+      const faq = faqReply(ctx.topic, intent, ctx.audience, n, norm);
+      if (faq) return out(faq);
+    }
+    if (intent === 'medicacion') return out(UNIVERSAL.medicacion + '\n\n' + pick(FOLLOW_UPS));
+    if (intent === 'cuando') return out(UNIVERSAL.cuando + '\n\n' + pick(FOLLOW_UPS));
   }
 
-  // Caso 3: sin tema en curso y sin tema nuevo detectado -> mensaje generico
-  // que invita a contar mas (solo pasa al inicio de la conversacion o si el
-  // mensaje es realmente ambiguo, como "no se", sin contexto previo).
-  const text =
-    `${name}quiero entenderte mejor para poder acompañarte bien.\n\n` +
-    'Puedo ayudarte a poner en palabras lo que sientes, especialmente si tiene que ver con tristeza o ' +
-    'ánimo bajo, ansiedad o preocupación excesiva, estrés, o si tienes preguntas sobre esquizofrenia o ' +
-    'algún trastorno de salud mental.\n\n' +
-    'Si prefieres algo más estructurado, en "Tamizaje" puedes completar el PHQ-9 o el GAD-7.\n\n' +
-    '¿Qué está pasando contigo en este momento?';
-  return { text, detectedName: null, topic: null, turn: 0 };
+  // 4c. Pedido generico de consejo / herramientas
+  if (/\b(consejos?|que hago|que puedo hacer|como me calmo|como calmarme|ayudame|necesito ayuda|dame (un|algun)|recomiendas|tips|que me sugieres|como me siento mejor|como mejorar)\b/.test(norm) && !ctx.topic) {
+    return out(UNIVERSAL.caja_herramientas);
+  }
+
+  // 5. Continuacion del hilo (respuestas cortas o mensajes sin tema nuevo)
+  if (ctx.topic && ALL_TOPICS[ctx.topic]) {
+    const shortAck = tokens.length <= 3 || ACK_SET.has(norm);
+    const r = continueTopic(ctx, n, shortAck);
+    return out(r.text, { turn: r.turn });
+  }
+
+  // 6. Respuesta corta sin contexto previo
+  if (ACK_SET.has(norm) || tokens.length <= 2) {
+    return out(`${n}gracias por responderme. Cuéntame un poco más, con tus palabras, para entenderte mejor. ¿Qué es lo que más te está pesando?\n\n${MENU}`);
+  }
+
+  // 7. Ultimo recurso: nunca hay "no entiendo"
+  return out(fallbackReply(msg, norm, tokens, n));
 }

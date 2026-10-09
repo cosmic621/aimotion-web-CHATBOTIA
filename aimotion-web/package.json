@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:bot": "node scripts/test-bot.mjs",
+    "test:risk": "node scripts/test-risk.mjs",
+    "test": "node scripts/test-risk.mjs && node scripts/test-bot.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.554.0",

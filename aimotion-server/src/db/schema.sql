@@ -101,3 +101,20 @@ CREATE TABLE IF NOT EXISTS treatment_plans (
 );
 
 CREATE INDEX IF NOT EXISTS idx_treatment_plans_user ON treatment_plans(user_id);
+
+-- ---------------------------------------------------------------------
+-- Contacto de emergencia (padre/madre/acudiente/persona de confianza).
+-- Solo se usa si la persona dio su consentimiento explicito al registrarse.
+-- ---------------------------------------------------------------------
+ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact_name TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact_relation TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS contact_consent_at TIMESTAMPTZ;
+
+-- Trazabilidad de a quien se aviso: la alerta queda ligada a la cuenta (si
+-- la hay) y al resultado del SMS enviado al contacto de emergencia.
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id);
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS contact_sms_sent BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS contact_sms_reason TEXT;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS contact_notified_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id);

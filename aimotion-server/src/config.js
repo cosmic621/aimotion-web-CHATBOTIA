@@ -23,6 +23,15 @@ export const config = {
     to: list(process.env.ALERT_EMAIL_TO),
   },
 
+  // Pasarela SMS propia (sin Twilio): un celular Android con la app de codigo
+  // abierto "SMS Gateway for Android" (capcom6). Se usa para avisar al
+  // contacto de emergencia de la persona usuaria.
+  smsGateway: {
+    url: process.env.SMS_GATEWAY_URL || '',
+    username: process.env.SMS_GATEWAY_USER || '',
+    password: process.env.SMS_GATEWAY_PASS || '',
+  },
+
   twilio: {
     accountSid: process.env.TWILIO_ACCOUNT_SID || '',
     authToken: process.env.TWILIO_AUTH_TOKEN || '',
@@ -36,3 +45,6 @@ export const isEmailConfigured = () =>
 
 export const isSmsConfigured = () =>
   Boolean(config.twilio.accountSid && config.twilio.authToken && config.twilio.fromNumber && config.twilio.to.length);
+
+export const isContactSmsConfigured = () =>
+  Boolean(config.smsGateway.url && config.smsGateway.username && config.smsGateway.password);

@@ -2,12 +2,17 @@ import React, { useState } from 'react';
 import { UserPlus, LogIn, X } from 'lucide-react';
 import { registerPatient, loginPatient } from '../../lib/api';
 import { savePatientSession } from '../../lib/patientSession';
+import EmergencyContactFields, { EMPTY_CONTACT } from './EmergencyContactFields';
+
+const inputClass =
+  'w-full border-2 border-purple-200 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600';
 
 export default function PatientAuth({ onSuccess, onDismiss }) {
   const [mode, setMode] = useState('register'); // 'register' | 'login'
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [contact, setContact] = useState(EMPTY_CONTACT);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -17,7 +22,17 @@ export default function PatientAuth({ onSuccess, onDismiss }) {
     setLoading(true);
     try {
       const result =
-        mode === 'register' ? await registerPatient(name, email, password) : await loginPatient(email, password);
+        mode === 'register'
+          ? await registerPatient({
+              name,
+              email,
+              password,
+              contactName: contact.name,
+              contactPhone: contact.phone,
+              contactRelation: contact.relation,
+              contactConsent: contact.consent,
+            })
+          : await loginPatient(email, password);
       savePatientSession(result);
       onSuccess(result.user);
     } catch (err) {
@@ -40,29 +55,15 @@ export default function PatientAuth({ onSuccess, onDismiss }) {
       </h3>
       <p className="text-sm text-gray-500 mb-4">
         {mode === 'register'
-          ? 'Para que tu historial se guarde y el profesional pueda darte seguimiento semana a semana.'
+          ? 'Para guardar tu historial, recibir seguimiento semanal y que alguien de confianza pueda apoyarte si lo necesitas.'
           : 'Para ver tu historial y tu plan de seguimiento.'}
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-3">
         {mode === 'register' && (
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Tu nombre"
-            required
-            className="w-full border-2 border-purple-200 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
-          />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" required className={inputClass} />
         )}
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Correo electrónico"
-          required
-          className="w-full border-2 border-purple-200 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
-        />
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Correo electrónico" required className={inputClass} />
         <input
           type="password"
           value={password}
@@ -70,8 +71,11 @@ export default function PatientAuth({ onSuccess, onDismiss }) {
           placeholder="Contraseña (mín. 8 caracteres)"
           required
           minLength={8}
-          className="w-full border-2 border-purple-200 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600"
+          className={inputClass}
         />
+
+        {mode === 'register' && <EmergencyContactFields value={contact} onChange={setContact} />}
+
         {error && <p className="text-red-600 text-xs">{error}</p>}
         <button
           type="submit"
@@ -84,7 +88,10 @@ export default function PatientAuth({ onSuccess, onDismiss }) {
       </form>
 
       <button
-        onClick={() => setMode(mode === 'register' ? 'login' : 'register')}
+        onClick={() => {
+          setMode(mode === 'register' ? 'login' : 'register');
+          setError('');
+        }}
         className="text-xs text-purple-600 hover:underline mt-3 block mx-auto"
       >
         {mode === 'register' ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Regístrate'}

@@ -44,6 +44,19 @@ export default function RiskBanner({ category, notificationStatus, onContinue })
           </p>
         </div>
 
+        {notificationStatus?.contactSms?.sent && (
+          <div className="flex items-start gap-3 p-4 rounded-2xl bg-green-50 text-green-800">
+            <CheckCircle2 className="w-6 h-6 flex-shrink-0" />
+            <p className="text-sm">
+              También le enviamos un SMS a tu contacto de emergencia para que pueda comunicarse contigo.
+              No compartimos nada de lo que escribiste.
+            </p>
+          </div>
+        )}
+        {notificationStatus?.contactSms?.alreadyNotified && (
+          <p className="text-sm text-gray-600">Tu contacto de emergencia ya fue avisado hace poco.</p>
+        )}
+
         <div>
           <h3 className="font-bold text-gray-900 mb-3">Contacta ahora, no esperes:</h3>
           <div className="grid sm:grid-cols-3 gap-3">

@@ -17,7 +17,7 @@ export default function ChatAssistant() {
   // Memoria de la conversacion: de que tema se esta hablando y que tan
   // profundo va, para que el bot pueda dar seguimiento real en vez de
   // responder cada mensaje de forma aislada. Ver src/lib/botResponses.js.
-  const [conversationContext, setConversationContext] = useState({ topic: null, turn: 0 });
+  const [conversationContext, setConversationContext] = useState({ topic: null, turn: 0, audience: 'self' });
   // Cuenta opcional: si hay sesion de paciente, el historial persiste entre
   // visitas y queda trazabilidad real para el profesional (ver chatRepo.js).
   const [patient, setPatient] = useState(() => getPatientSession()?.user || null);
@@ -99,9 +99,9 @@ export default function ChatAssistant() {
     }
 
     setTimeout(() => {
-      const { text: botText, detectedName, topic, turn } = getBotResponse(text, userName, conversationContext);
+      const { text: botText, detectedName, topic, turn, audience } = getBotResponse(text, userName, conversationContext);
       if (detectedName) setUserName(detectedName);
-      setConversationContext({ topic, turn });
+      setConversationContext({ topic, turn, audience });
 
       const extra =
         risk && risk.severity === 'alto'
@@ -164,7 +164,7 @@ export default function ChatAssistant() {
           </div>
 
           {showAuthPanel && !patient && (
-            <div className="flex-shrink-0 p-4 bg-purple-50 border-b border-purple-100">
+            <div className="flex-shrink-0 p-4 bg-purple-50 border-b border-purple-100 max-h-[60%] overflow-y-auto">
               <PatientAuth
                 onSuccess={(user) => {
                   setPatient(user);

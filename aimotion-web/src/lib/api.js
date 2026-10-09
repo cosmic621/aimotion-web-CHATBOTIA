@@ -34,12 +34,14 @@ function patientAuthHeaders() {
 // Alertas y tamizajes (publico desde el chat; lectura requiere profesional)
 // ---------------------------------------------------------------------
 
+// Con sesion de paciente, el servidor sabe quien es (por el token) y puede avisar
+// a su contacto de emergencia si el riesgo es critico. Sin sesion, es anonimo.
 export function postAlert(payload) {
-  return request('/api/alerts', { method: 'POST', body: JSON.stringify(payload) });
+  return request('/api/alerts', { method: 'POST', headers: patientAuthHeaders(), body: JSON.stringify(payload) });
 }
 
 export function postScreening(payload) {
-  return request('/api/screenings', { method: 'POST', body: JSON.stringify(payload) });
+  return request('/api/screenings', { method: 'POST', headers: patientAuthHeaders(), body: JSON.stringify(payload) });
 }
 
 export function getAlerts() {
@@ -74,8 +76,18 @@ export function login(email, password) {
 // Cuentas de paciente (opcional, registro publico)
 // ---------------------------------------------------------------------
 
-export function registerPatient(name, email, password) {
-  return request('/api/patient-auth/register', { method: 'POST', body: JSON.stringify({ name, email, password }) });
+export function registerPatient(data) {
+  // data: { name, email, password, contactName, contactPhone, contactRelation, contactConsent }
+  return request('/api/patient-auth/register', { method: 'POST', body: JSON.stringify(data) });
+}
+
+/** Agregar/cambiar el contacto de emergencia de la cuenta (requiere consentimiento). */
+export function updateEmergencyContact(data) {
+  return request('/api/patient-auth/contact', {
+    method: 'PATCH',
+    headers: patientAuthHeaders(),
+    body: JSON.stringify(data),
+  });
 }
 
 export function loginPatient(email, password) {

@@ -3,6 +3,7 @@ import { CalendarCheck, CheckCircle2, Circle, Lock } from 'lucide-react';
 import { getMyTreatmentPlans, updateTreatmentPlanProgress } from '../../lib/api';
 import { getPatientSession } from '../../lib/patientSession';
 import PatientAuth from '../Auth/PatientAuth';
+import EmergencyContactCard from '../Auth/EmergencyContactCard';
 
 const CONDITION_LABELS = {
   depresion: 'Depresión',
@@ -65,6 +66,8 @@ export default function MyPlans() {
         <h2 className="text-3xl font-bold text-gray-900">Mi Progreso</h2>
         <p className="text-gray-500 text-sm mt-1">Hola {patient.name} — aquí está tu plan de seguimiento.</p>
       </div>
+
+      <EmergencyContactCard patient={patient} onUpdated={setPatient} />
 
       {loading && <p className="text-center text-gray-400">Cargando...</p>}
       {error && <p className="text-center text-red-600 text-sm mb-4">{error}</p>}
