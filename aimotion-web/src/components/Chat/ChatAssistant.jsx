@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Heart, Send, Shield, UserCircle2 } from 'lucide-react';
+import { Heart, Send, Shield, UserCircle2, LogOut } from 'lucide-react';
 import { getBotResponse, INTRO_MESSAGE } from '../../lib/botResponses';
 import { analyzeTextRisk, RISK_CATEGORY_LABELS } from '../../lib/riskEngine';
-import { postAlert, postChatMessage, getChatHistory } from '../../lib/api';
+import { postAlert, postChatMessage, getChatHistory, logoutPatient } from '../../lib/api';
 import { getSessionId } from '../../lib/session';
-import { getPatientSession } from '../../lib/patientSession';
+import { getPatientSession, clearPatientSession } from '../../lib/patientSession';
 import RiskBanner from './RiskBanner';
 import PatientAuth from '../Auth/PatientAuth';
 
@@ -114,6 +114,15 @@ export default function ChatAssistant() {
     }, 1200);
   };
 
+  const handleLogout = async () => {
+    await logoutPatient(); // el servidor borra la cookie de sesion
+    clearPatientSession();
+    setPatient(null);
+    setUserName('');
+    setMessages([{ type: 'bot', text: INTRO_MESSAGE }]);
+    setConversationContext({ topic: null, turn: 0, audience: 'self' });
+  };
+
   const handleContinueAfterRisk = () => {
     setCriticalRisk(null);
     setMessages((prev) => [
@@ -159,6 +168,16 @@ export default function ChatAssistant() {
                   <UserCircle2 className="w-4 h-4" />
                   <span>{patient ? patient.name : 'Guardar historial'}</span>
                 </button>
+                {patient && (
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 bg-white/20 px-4 py-2 rounded-full hover:bg-white/30 transition"
+                    aria-label="Cerrar sesión"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    <span>Salir</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -224,6 +243,7 @@ export default function ChatAssistant() {
             <div className="flex space-x-3">
               <input
                 type="text"
+                maxLength={2000}
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}

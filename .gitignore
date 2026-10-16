@@ -1,0 +1,16 @@
+# Secretos y entornos: NUNCA al repositorio
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+
+# Dependencias y artefactos
+node_modules/
+dist/
+coverage/
+*.log
+*.zip
+.DS_Store

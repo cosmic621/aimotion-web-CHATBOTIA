@@ -118,3 +118,10 @@ ALTER TABLE alerts ADD COLUMN IF NOT EXISTS contact_sms_sent BOOLEAN NOT NULL DE
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS contact_sms_reason TEXT;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS contact_notified_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id);
+
+-- ---------------------------------------------------------------------
+-- Seguridad (v8): el tamizaje queda ligado a la cuenta (si la hay) para que
+-- las politicas RLS puedan decidir quien lo ve.
+-- ---------------------------------------------------------------------
+ALTER TABLE screenings ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id);
+CREATE INDEX IF NOT EXISTS idx_screenings_user ON screenings(user_id);

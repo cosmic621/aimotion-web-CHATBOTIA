@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldAlert, ClipboardList, CheckCircle2, RefreshCw, LogOut, Radio } from 'lucide-react';
-import { getAlerts, getScreenings, reviewAlert } from '../../lib/api';
-import { getSession, getToken, clearSession } from '../../lib/authSession';
+import { getAlerts, getScreenings, reviewAlert, logout } from '../../lib/api';
+import { getSession, clearSession } from '../../lib/authSession';
 import { connectSocket, disconnectSocket } from '../../lib/socket';
 import { RISK_CATEGORY_LABELS } from '../../lib/riskEngine';
 import Login from './Login';
@@ -50,8 +50,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!professional) return undefined;
 
-    const token = getToken();
-    const socket = connectSocket(token);
+    const socket = connectSocket();
 
     socket.on('connect', () => setLiveConnected(true));
     socket.on('disconnect', () => setLiveConnected(false));
@@ -86,8 +85,9 @@ export default function Dashboard() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     disconnectSocket();
+    await logout(); // el servidor borra la cookie de sesion
     clearSession();
     setProfessional(null);
   };

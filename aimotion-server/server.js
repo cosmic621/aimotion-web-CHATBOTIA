@@ -1,96 +1,90 @@
-import express from 'express';
-import cors from 'cors';
+import 'dotenv/config';
 import { createServer } from 'node:http';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
-import { config, isEmailConfigured, isSmsConfigured } from './src/config.js';
-import { authRouter } from './src/routes/auth.js';
-import { patientAuthRouter } from './src/routes/patientAuth.js';
-import { alertsRouter } from './src/routes/alerts.js';
-import { screeningsRouter } from './src/routes/screenings.js';
-import { chatRouter } from './src/routes/chat.js';
-import { treatmentPlansRouter } from './src/routes/treatmentPlans.js';
-import { pool } from './src/db/pool.js';
-import { verifyToken } from './src/auth/jwt.js';
-import { setIo } from './src/realtime.js';
+import { loadConfig } from './src/config.js';
+import { createApp } from './src/app.js';
+import { createDb } from './src/db/db.js';
+import { createRepos } from './src/db/repos.js';
+import { createCipherBoxFromEnv } from './src/security/crypto.js';
+import { createDbMonitor } from './src/security/dbMonitor.js';
+import { createLoginGuard } from './src/security/rateLimit.js';
+import { createLimiters } from './src/security/limiters.js';
+import { parseCookies } from './src/security/cookies.js';
+import { createPasswordHasher } from './src/auth/hash.js';
+import { createTokenService } from './src/auth/tokens.js';
+import { createEmailService } from './src/services/emailService.js';
+import { createProfessionalSmsService } from './src/services/smsService.js';
+import { createContactSmsService } from './src/services/contactSmsService.js';
+import { setIo, emitToProfessionals } from './src/realtime.js';
 
-if (!config.databaseUrl) {
-  console.error('DATABASE_URL no esta configurada. Copia .env.example a .env y completa tu conexion a PostgreSQL.');
+// 1. Configuracion: el servidor NO arranca con secretos debiles o configuracion insegura.
+const { config, errors, warnings } = loadConfig(process.env);
+if (errors.length) {
+  console.error('\nConfiguración insegura o incompleta. Corrige lo siguiente y vuelve a iniciar:\n');
+  errors.forEach((e) => console.error(`  ✖ ${e}`));
+  console.error('\nAyuda: copia .env.example a .env y ejecuta "npm run generate-keys".\n');
   process.exit(1);
 }
-if (!config.jwtSecret) {
-  console.error('JWT_SECRET no esta configurada. Define un secreto largo y aleatorio en .env.');
-  process.exit(1);
-}
+warnings.forEach((w) => console.warn(`  ⚠ ${w}`));
 
-const app = express();
+// 2. Dependencias
+const cipher = createCipherBoxFromEnv(process.env);
+const monitor = createDbMonitor({ slowMs: config.slowQueryMs });
+const db = createDb({ connectionString: config.databaseUrl, ssl: config.dbSsl, monitor });
+const rls = await db.detectRls();
+const repos = createRepos({ db, cipher });
+const tokens = createTokenService({ jwt, secret: config.jwtSecret });
+const hasher = createPasswordHasher({ bcrypt, cost: config.bcryptCost });
+const services = {
+  email: createEmailService({ smtp: config.smtp }),
+  proSms: createProfessionalSmsService({ twilioConfig: config.twilio }),
+  contactSms: createContactSmsService({ gateway: config.smsGateway }),
+};
+const limiters = createLimiters();
+const loginGuard = createLoginGuard();
 
-app.use(cors({ origin: config.corsOrigin }));
-app.use(express.json());
+const app = createApp({ config, repos, db, tokens, hasher, services, limiters, loginGuard, realtime: { emit: emitToProfessionals } });
 
-app.get('/api/health', async (_req, res) => {
-  let dbConnected = false;
-  try {
-    await pool.query('SELECT 1');
-    dbConnected = true;
-  } catch {
-    dbConnected = false;
-  }
-  res.json({
-    status: 'ok',
-    dbConnected,
-    emailConfigured: isEmailConfigured(),
-    smsConfigured: isSmsConfigured(),
-  });
-});
-
-app.use('/api/auth', authRouter);
-app.use('/api/patient-auth', patientAuthRouter);
-app.use('/api/alerts', alertsRouter);
-app.use('/api/screenings', screeningsRouter);
-app.use('/api/chat', chatRouter);
-app.use('/api/treatment-plans', treatmentPlansRouter);
-
-app.use((err, _req, res, _next) => {
-  console.error(err);
-  res.status(500).json({ error: 'Error interno del servidor' });
-});
-
-// --- Servidor HTTP + WebSockets (Socket.IO) ---
-// El panel profesional se conecta por socket para recibir alertas nuevas
-// (y revisiones de otros profesionales) en tiempo real, sin recargar.
+// 3. WebSockets: misma sesion (cookie HttpOnly), origen verificado (evita secuestro de WebSocket entre sitios)
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: config.corsOrigin },
+  serveClient: false,
+  cors: { origin: config.corsOrigins, credentials: true },
+  maxHttpBufferSize: 1e4,
 });
-
-// Autenticacion del socket: exige el mismo JWT que usan las rutas HTTP.
-// Sin esto, cualquiera podria conectarse y escuchar alertas de riesgo clinico.
 io.use((socket, next) => {
-  try {
-    const token = socket.handshake.auth?.token;
-    if (!token) return next(new Error('unauthorized'));
-    const payload = verifyToken(token);
-    if (payload.type !== 'professional') return next(new Error('unauthorized'));
-    socket.professional = { id: payload.sub, name: payload.name, role: payload.role };
-    next();
-  } catch {
-    next(new Error('unauthorized'));
-  }
+  const origin = socket.handshake.headers.origin;
+  if (origin && !config.corsOrigins.includes(origin)) return next(new Error('unauthorized'));
+  const cookies = parseCookies(socket.handshake.headers.cookie);
+  const payload = tokens.verify(cookies[config.cookies.names.professional], 'professional');
+  if (!payload) return next(new Error('unauthorized'));
+  socket.professional = { id: payload.sub, name: payload.name, role: payload.role };
+  return next();
 });
-
 io.on('connection', (socket) => {
   socket.join('professionals');
-  console.log(`Panel profesional conectado en vivo: ${socket.professional.name}`);
-
-  socket.on('disconnect', () => {
-    console.log(`Panel profesional desconectado: ${socket.professional.name}`);
-  });
+  socket.on('disconnect', () => {});
 });
-
 setIo(io);
 
 httpServer.listen(config.port, () => {
-  console.log(`AIMotion server escuchando en http://localhost:${config.port}`);
-  console.log(`Email configurado: ${isEmailConfigured() ? 'si' : 'no (ver .env.example)'}`);
-  console.log(`SMS configurado:   ${isSmsConfigured() ? 'si' : 'no (ver .env.example)'}`);
+  console.log(`AIMotion server escuchando en el puerto ${config.port} (${config.env})`);
+  console.log(`  HTTPS forzado: ${config.forceHttps ? 'sí' : 'no'} · cookies Secure: ${config.cookies.secure ? 'sí' : 'no'} · RLS en la BD: ${rls ? 'activo' : 'NO activo (npm run migrate:rls)'}`);
+  console.log(`  Email: ${services.email.configured() ? 'configurado' : 'no'} · SMS al contacto: ${services.contactSms.configured() ? 'configurado' : 'no'}`);
 });
+
+// 4. Cierre ordenado
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    console.log(`\n${sig} recibido: cerrando...`);
+    io.close();
+    httpServer.close(async () => {
+      await db.close();
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  });
+}
+process.on('unhandledRejection', (err) => console.error('[unhandledRejection]', err?.message));

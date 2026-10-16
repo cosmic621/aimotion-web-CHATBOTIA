@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { UserPlus, LogIn, X } from 'lucide-react';
 import { registerPatient, loginPatient } from '../../lib/api';
 import { savePatientSession } from '../../lib/patientSession';
@@ -15,6 +15,8 @@ export default function PatientAuth({ onSuccess, onDismiss }) {
   const [contact, setContact] = useState(EMPTY_CONTACT);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [website, setWebsite] = useState(''); // campo trampa anti-bots
+  const startedAt = useRef(Date.now());
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -31,9 +33,11 @@ export default function PatientAuth({ onSuccess, onDismiss }) {
               contactPhone: contact.phone,
               contactRelation: contact.relation,
               contactConsent: contact.consent,
+              website,
+              formStartedAt: startedAt.current,
             })
-          : await loginPatient(email, password);
-      savePatientSession(result);
+          : await loginPatient(email, password, { website, formStartedAt: startedAt.current });
+      savePatientSession({ user: result.user });
       onSuccess(result.user);
     } catch (err) {
       setError(err.message || 'Algo salió mal, intenta de nuevo');
@@ -60,6 +64,16 @@ export default function PatientAuth({ onSuccess, onDismiss }) {
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-3">
+        <input
+          type="text"
+          name="website"
+          value={website}
+          onChange={(e) => setWebsite(e.target.value)}
+          tabIndex={-1}
+          autoComplete="off"
+          aria-hidden="true"
+          className="absolute -left-[9999px] h-0 w-0 opacity-0"
+        />
         {mode === 'register' && (
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Tu nombre" required className={inputClass} />
         )}
@@ -90,6 +104,7 @@ export default function PatientAuth({ onSuccess, onDismiss }) {
       <button
         onClick={() => {
           setMode(mode === 'register' ? 'login' : 'register');
+          startedAt.current = Date.now();
           setError('');
         }}
         className="text-xs text-purple-600 hover:underline mt-3 block mx-auto"

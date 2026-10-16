@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Lock, LogIn } from 'lucide-react';
 import { login } from '../../lib/api';
 import { saveSession } from '../../lib/authSession';
@@ -8,14 +8,16 @@ export default function Login({ onSuccess }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [website, setWebsite] = useState(''); // campo trampa anti-bots: una persona nunca lo ve ni lo llena
+  const startedAt = useRef(Date.now()); // los bots envian el formulario al instante
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const { token, professional } = await login(email, password);
-      saveSession({ token, professional });
+      const { professional } = await login(email, password, { website, formStartedAt: startedAt.current });
+      saveSession({ professional });
       onSuccess(professional);
     } catch (err) {
       setError(err.message || 'No se pudo iniciar sesión');
@@ -33,6 +35,16 @@ export default function Login({ onSuccess }) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        <input
+          type="text"
+          name="website"
+          value={website}
+          onChange={(e) => setWebsite(e.target.value)}
+          tabIndex={-1}
+          autoComplete="off"
+          aria-hidden="true"
+          className="absolute -left-[9999px] h-0 w-0 opacity-0"
+        />
         <input
           type="email"
           value={email}

@@ -1,15 +1,45 @@
-import { getToken } from './authSession';
-import { getPatientToken } from './patientSession';
-
+// Cliente HTTP de la API. Seguridad (items 9 y 15):
+//  - La sesion viaja en cookies HttpOnly: este codigo NUNCA ve ni guarda tokens
+//    (un XSS no puede robarlos). Por eso todas las peticiones usan credentials: 'include'.
+//  - Las peticiones que modifican datos envian el token CSRF en X-CSRF-Token.
+//    Se obtiene al iniciar sesion y, tras recargar la pagina, de GET /api/auth/csrf.
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 export class AuthError extends Error {}
 
-async function request(path, options = {}) {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
-  });
+let csrfToken = null;
+
+export function setCsrfToken(token) {
+  csrfToken = token || null;
+}
+
+async function fetchCsrfToken() {
+  const res = await fetch(`${API_BASE_URL}/api/auth/csrf`, { credentials: 'include' });
+  const data = await res.json();
+  csrfToken = data.csrfToken || null;
+  return csrfToken;
+}
+
+async function request(path, options = {}, retried = false) {
+  const method = (options.method || 'GET').toUpperCase();
+  const modifies = method !== 'GET' && method !== 'HEAD';
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+
+  if (modifies) {
+    if (!csrfToken) await fetchCsrfToken().catch(() => {});
+    if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+  }
+
+  const res = await fetch(`${API_BASE_URL}${path}`, { ...options, method, headers, credentials: 'include' });
+
+  // Token CSRF vencido (p. ej. cambio de sesion): se renueva y se reintenta una vez.
+  if (res.status === 403 && modifies && !retried) {
+    const body = await res.clone().json().catch(() => ({}));
+    if (/CSRF/i.test(body.error || '')) {
+      await fetchCsrfToken().catch(() => {});
+      return request(path, options, true);
+    }
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -20,136 +50,69 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-function professionalAuthHeaders() {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+// ---------------------------------------------------------------------
+// Alertas y tamizajes (anonimos o con cuenta; la lectura es solo del profesional)
+// ---------------------------------------------------------------------
+export const postAlert = (payload) => request('/api/alerts', { method: 'POST', body: JSON.stringify(payload) });
+export const postScreening = (payload) => request('/api/screenings', { method: 'POST', body: JSON.stringify(payload) });
+export const getAlerts = () => request('/api/alerts');
+export const getScreenings = () => request('/api/screenings');
+export const reviewAlert = (id, reviewerNote) =>
+  request(`/api/alerts/${encodeURIComponent(id)}/review`, { method: 'PATCH', body: JSON.stringify({ reviewerNote: reviewerNote || null }) });
+export const getHealth = () => request('/api/health');
+
+// ---------------------------------------------------------------------
+// Profesional
+// botData = { website, formStartedAt }: defensas anti-bot (campo trampa + tiempo de llenado)
+// ---------------------------------------------------------------------
+export async function login(email, password, botData = {}) {
+  const result = await request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password, ...botData }) });
+  setCsrfToken(result.csrfToken);
+  return result;
 }
 
-function patientAuthHeaders() {
-  const token = getPatientToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+export async function logout() {
+  await request('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  setCsrfToken(null);
 }
 
 // ---------------------------------------------------------------------
-// Alertas y tamizajes (publico desde el chat; lectura requiere profesional)
+// Paciente (cuenta opcional)
 // ---------------------------------------------------------------------
-
-// Con sesion de paciente, el servidor sabe quien es (por el token) y puede avisar
-// a su contacto de emergencia si el riesgo es critico. Sin sesion, es anonimo.
-export function postAlert(payload) {
-  return request('/api/alerts', { method: 'POST', headers: patientAuthHeaders(), body: JSON.stringify(payload) });
+export async function registerPatient(data) {
+  const result = await request('/api/patient-auth/register', { method: 'POST', body: JSON.stringify(data) });
+  setCsrfToken(result.csrfToken);
+  return result;
 }
 
-export function postScreening(payload) {
-  return request('/api/screenings', { method: 'POST', headers: patientAuthHeaders(), body: JSON.stringify(payload) });
+export async function loginPatient(email, password, botData = {}) {
+  const result = await request('/api/patient-auth/login', { method: 'POST', body: JSON.stringify({ email, password, ...botData }) });
+  setCsrfToken(result.csrfToken);
+  return result;
 }
 
-export function getAlerts() {
-  return request('/api/alerts', { headers: professionalAuthHeaders() });
+export async function logoutPatient() {
+  await request('/api/patient-auth/logout', { method: 'POST' }).catch(() => {});
+  setCsrfToken(null);
 }
 
-export function getScreenings() {
-  return request('/api/screenings', { headers: professionalAuthHeaders() });
-}
-
-export function reviewAlert(id, reviewerNote) {
-  return request(`/api/alerts/${id}/review`, {
-    method: 'PATCH',
-    headers: professionalAuthHeaders(),
-    body: JSON.stringify({ reviewerNote }),
-  });
-}
-
-export function getHealth() {
-  return request('/api/health');
-}
-
-// ---------------------------------------------------------------------
-// Autenticacion de profesional
-// ---------------------------------------------------------------------
-
-export function login(email, password) {
-  return request('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-}
-
-// ---------------------------------------------------------------------
-// Cuentas de paciente (opcional, registro publico)
-// ---------------------------------------------------------------------
-
-export function registerPatient(data) {
-  // data: { name, email, password, contactName, contactPhone, contactRelation, contactConsent }
-  return request('/api/patient-auth/register', { method: 'POST', body: JSON.stringify(data) });
-}
-
-/** Agregar/cambiar el contacto de emergencia de la cuenta (requiere consentimiento). */
-export function updateEmergencyContact(data) {
-  return request('/api/patient-auth/contact', {
-    method: 'PATCH',
-    headers: patientAuthHeaders(),
-    body: JSON.stringify(data),
-  });
-}
-
-export function loginPatient(email, password) {
-  return request('/api/patient-auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-}
+export const updateEmergencyContact = (data) => request('/api/patient-auth/contact', { method: 'PATCH', body: JSON.stringify(data) });
 
 // ---------------------------------------------------------------------
 // Chat: persistencia y trazabilidad
 // ---------------------------------------------------------------------
-
-/** Registra un turno del chat. Si hay sesion de paciente, queda asociado a la cuenta. */
-export function postChatMessage({ sessionId, role, content, topic }) {
-  return request('/api/chat/messages', {
-    method: 'POST',
-    headers: patientAuthHeaders(),
-    body: JSON.stringify({ sessionId, role, content, topic }),
-  });
-}
-
-/** Historial: si hay cuenta de paciente, trae todo; si no, trae solo el de esta sesion anonima. */
-export function getChatHistory(sessionId) {
-  return request(`/api/chat/messages?sessionId=${encodeURIComponent(sessionId)}`, {
-    headers: patientAuthHeaders(),
-  });
-}
-
-/** Panel profesional: usuarios con actividad de chat, para trazabilidad. */
-export function getChatUsers() {
-  return request('/api/chat/users', { headers: professionalAuthHeaders() });
-}
-
-export function getUserChatHistory(userId) {
-  return request(`/api/chat/users/${userId}/messages`, { headers: professionalAuthHeaders() });
-}
+export const postChatMessage = ({ sessionId, role, content, topic }) =>
+  request('/api/chat/messages', { method: 'POST', body: JSON.stringify({ sessionId, role, content, topic: topic || null }) });
+export const getChatHistory = (sessionId) => request(`/api/chat/messages?sessionId=${encodeURIComponent(sessionId)}`);
+export const getChatUsers = () => request('/api/chat/users');
+export const getUserChatHistory = (userId) => request(`/api/chat/users/${encodeURIComponent(userId)}/messages`);
 
 // ---------------------------------------------------------------------
-// Planes de tratamiento semanales (SIEMPRE creados por un profesional)
+// Planes de tratamiento semanales (siempre creados por un profesional)
 // ---------------------------------------------------------------------
-
-export function createTreatmentPlan({ userId, condition, title, weeks }) {
-  return request('/api/treatment-plans', {
-    method: 'POST',
-    headers: professionalAuthHeaders(),
-    body: JSON.stringify({ userId, condition, title, weeks }),
-  });
-}
-
-/** El paciente ve sus propios planes. */
-export function getMyTreatmentPlans() {
-  return request('/api/treatment-plans/mine', { headers: patientAuthHeaders() });
-}
-
-/** El profesional ve los planes de un paciente especifico. */
-export function getUserTreatmentPlans(userId) {
-  return request(`/api/treatment-plans/user/${userId}`, { headers: professionalAuthHeaders() });
-}
-
-/** El paciente marca una semana como completada/pendiente. */
-export function updateTreatmentPlanProgress(planId, weekNumber, completed) {
-  return request(`/api/treatment-plans/${planId}/progress`, {
-    method: 'PATCH',
-    headers: patientAuthHeaders(),
-    body: JSON.stringify({ weekNumber, completed }),
-  });
-}
+export const createTreatmentPlan = ({ userId, condition, title, weeks }) =>
+  request('/api/treatment-plans', { method: 'POST', body: JSON.stringify({ userId, condition, title, weeks }) });
+export const getMyTreatmentPlans = () => request('/api/treatment-plans/mine');
+export const getUserTreatmentPlans = (userId) => request(`/api/treatment-plans/user/${encodeURIComponent(userId)}`);
+export const updateTreatmentPlanProgress = (planId, weekNumber, completed) =>
+  request(`/api/treatment-plans/${encodeURIComponent(planId)}/progress`, { method: 'PATCH', body: JSON.stringify({ weekNumber, completed }) });

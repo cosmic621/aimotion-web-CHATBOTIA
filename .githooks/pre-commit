@@ -1,0 +1,8 @@
+#!/bin/sh
+# Bloquea el commit si hay secretos en los archivos versionados.
+# Activar una vez por clon:   git config core.hooksPath .githooks
+# (en macOS/Linux ademas:      chmod +x .githooks/pre-commit)
+cd aimotion-server && node scripts/scanSecrets.js .. || {
+  echo "Commit cancelado: se detectaron posibles secretos (ver arriba)."
+  exit 1
+}

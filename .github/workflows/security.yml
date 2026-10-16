@@ -1,0 +1,56 @@
+name: Seguridad y pruebas
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1'   # cada lunes: detecta vulnerabilidades nuevas en dependencias
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: [aimotion-server, aimotion-web]
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund   # cambia a "npm ci" cuando el lockfile este regenerado
+      - run: npm test
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial completo: tambien busca secretos en commits antiguos
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Escaner propio (archivos actuales)
+        run: cd aimotion-server && node scripts/scanSecrets.js ..
+      - name: Gitleaks (historial de git)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  dependencies:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: [aimotion-server, aimotion-web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Auditoria de dependencias (falla con severidad alta o critica)
+        run: cd ${{ matrix.dir }} && npm install --package-lock-only --no-audit && npm audit --audit-level=high

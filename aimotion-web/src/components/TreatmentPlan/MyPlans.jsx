@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CalendarCheck, CheckCircle2, Circle, Lock } from 'lucide-react';
-import { getMyTreatmentPlans, updateTreatmentPlanProgress } from '../../lib/api';
-import { getPatientSession } from '../../lib/patientSession';
+import { getMyTreatmentPlans, updateTreatmentPlanProgress, logoutPatient } from '../../lib/api';
+import { getPatientSession, clearPatientSession } from '../../lib/patientSession';
 import PatientAuth from '../Auth/PatientAuth';
 import EmergencyContactCard from '../Auth/EmergencyContactCard';
 
@@ -44,6 +44,13 @@ export default function MyPlans() {
     }
   };
 
+  const handleLogout = async () => {
+    await logoutPatient();
+    clearPatientSession();
+    setPatient(null);
+    setPlans([]);
+  };
+
   if (!patient) {
     return (
       <div className="max-w-md mx-auto">
@@ -65,6 +72,9 @@ export default function MyPlans() {
         <CalendarCheck className="w-10 h-10 text-purple-600 mx-auto mb-3" />
         <h2 className="text-3xl font-bold text-gray-900">Mi Progreso</h2>
         <p className="text-gray-500 text-sm mt-1">Hola {patient.name} — aquí está tu plan de seguimiento.</p>
+        <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-red-600 mt-2 underline">
+          Cerrar sesión
+        </button>
       </div>
 
       <EmergencyContactCard patient={patient} onUpdated={setPatient} />

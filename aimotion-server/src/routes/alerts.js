@@ -1,107 +1,106 @@
 import { Router } from 'express';
 import { nanoid } from 'nanoid';
-import { z } from 'zod';
-import { alertsRepo } from '../db/alertsRepo.js';
-import { usersRepo } from '../db/usersRepo.js';
-import { auditRepo } from '../db/auditRepo.js';
-import { sendAlertEmail } from '../services/emailService.js';
-import { sendAlertSms } from '../services/smsService.js';
-import { sendContactSms } from '../services/contactSmsService.js';
-import { requireAuth, optionalPatientAuth } from '../auth/requireAuth.js';
-import { emitToProfessionals } from '../realtime.js';
+import { v, validate } from '../security/validate.js';
+import { parsePagination, setPaginationHeaders } from '../security/pagination.js';
+import { anonCtx, patientCtx, professionalCtx, systemCtx } from '../db/context.js';
+import { wrap, idParam, sessionIdSchema, paginationQuery } from './helpers.js';
 
-export const alertsRouter = Router();
+const CATEGORIES = ['ideacion_suicida', 'planeacion_suicida', 'autolesion', 'violencia_hacia_terceros', 'episodio_psicotico', 'crisis_panico_severa', 'desesperanza'];
+const CONTACT_COOLDOWN_MS = 6 * 60 * 60 * 1000; // un SMS al contacto cada 6 h por cuenta
 
-// Para no saturar al contacto de emergencia: maximo un SMS cada 6 horas por cuenta.
-const CONTACT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
-
-const createAlertSchema = z.object({
-  sessionId: z.string().min(1),
-  userName: z.string().optional().nullable(),
-  category: z.string().min(1),
-  severity: z.enum(['moderado', 'alto', 'critico']),
-  excerpt: z.string().max(500).optional().default(''),
-  source: z.string().optional().default('chat'),
+const createSchema = v.object({
+  sessionId: sessionIdSchema,
+  userName: v.string({ max: 100 }).optional().nullable(),
+  category: v.enum(CATEGORIES, { label: 'La categoría' }),
+  severity: v.enum(['moderado', 'alto', 'critico'], { label: 'La severidad' }),
+  // Se acepta un mensaje largo (nunca se rechaza una alerta por su tamaño) y se recorta a 500 al guardar.
+  excerpt: v.string({ max: 5000 }).withDefault(''),
+  source: v.enum(['chat', 'phq9', 'gad7']).withDefault('chat'),
 });
 
-/**
- * Decide si se avisa al contacto de emergencia y lo hace.
- * Solo para riesgo CRITICO, solo si hay cuenta con contacto y consentimiento.
- * El usuario sale del token verificado (req.user), nunca del cuerpo del
- * request: asi nadie puede usar este endpoint para enviar SMS a un numero
- * arbitrario.
- */
-async function notifyEmergencyContact(req, alert) {
-  if (alert.severity !== 'critico') return null;
-  if (!req.user) return { sent: false, reason: 'Sesión anónima: sin contacto de emergencia' };
+const reviewSchema = v.object({ reviewerNote: v.string({ max: 1000 }).optional().nullable() });
 
-  const user = await usersRepo.findById(req.user.id);
-  if (!user?.emergencyContact) return { sent: false, reason: 'Sin contacto de emergencia registrado' };
-
-  const last = await alertsRepo.lastContactNotification(user.id);
-  if (last && Date.now() - new Date(last).getTime() < CONTACT_COOLDOWN_MS) {
-    return { sent: false, alreadyNotified: true, reason: 'Ya se avisó al contacto hace poco' };
-  }
-  return sendContactSms(user);
+/** Lo que ve quien envia la alerta: solo si se aviso o no (sin motivos tecnicos internos). */
+function publicNotifications(n) {
+  return {
+    email: { sent: Boolean(n.email?.sent) },
+    sms: { sent: Boolean(n.sms?.sent) },
+    contactSms: { sent: Boolean(n.contactSms?.sent), alreadyNotified: Boolean(n.contactSms?.alreadyNotified) },
+  };
 }
 
-// Lo crea el asistente (o el tamizaje) cuando el motor de riesgo detecta un
-// factor critico o alto. Funciona con o sin cuenta (optionalPatientAuth).
-alertsRouter.post('/', optionalPatientAuth, async (req, res) => {
-  const parsed = createAlertSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: 'sessionId, category y severity (moderado|alto|critico) son requeridos' });
-  }
-  const { sessionId, userName, category, severity, excerpt, source } = parsed.data;
+export function createAlertsRouter({ repos, services, realtime, alertLimiter, audit }) {
+  const router = Router();
 
-  let alert = await alertsRepo.create({
-    id: nanoid(10),
-    sessionId,
-    userId: req.user?.id || null,
-    userName: userName || req.user?.name || null,
-    category,
-    severity,
-    excerpt,
-    source,
-  });
-
-  if (severity === 'alto' || severity === 'critico') {
-    const [emailResult, smsResult, contactResult] = await Promise.all([
-      sendAlertEmail(alert),
-      sendAlertSms(alert),
-      notifyEmergencyContact(req, alert),
-    ]);
-    alert = await alertsRepo.setNotificationResults(alert.id, { emailResult, smsResult });
-    if (contactResult) {
-      alert = await alertsRepo.setContactResult(alert.id, contactResult);
-      // setContactResult no conoce "alreadyNotified"; se lo pasamos a la respuesta.
-      if (contactResult.alreadyNotified) alert.notifications.contactSms.alreadyNotified = true;
+  /**
+   * Avisa al contacto de emergencia SOLO ante riesgo critico, con cuenta, contacto
+   * y consentimiento. El usuario sale del token (req.user), nunca del cuerpo.
+   */
+  async function notifyEmergencyContact(req, alert) {
+    if (alert.severity !== 'critico') return null;
+    if (!req.user) return { sent: false, reason: 'Sesión anónima: sin contacto de emergencia' };
+    const sys = systemCtx();
+    const user = await repos.users.findById(sys, req.user.id);
+    if (!user?.emergencyContact) return { sent: false, reason: 'Sin contacto de emergencia registrado' };
+    const last = await repos.alerts.lastContactNotification(sys, user.id);
+    if (last && Date.now() - new Date(last).getTime() < CONTACT_COOLDOWN_MS) {
+      return { sent: false, alreadyNotified: true, reason: 'Ya se avisó al contacto hace poco' };
     }
+    return services.contactSms.send(user);
   }
 
-  emitToProfessionals('alert:new', alert);
-  res.status(201).json(alert);
-});
+  router.post('/', alertLimiter, validate({ body: createSchema }), wrap(async (req, res) => {
+    const b = req.valid.body;
+    const user = req.user || null;
+    const ctx = user ? patientCtx(user) : anonCtx(b.sessionId);
 
-// Panel profesional: requiere sesion valida (JWT).
-alertsRouter.get('/', requireAuth, async (req, res) => {
-  const alerts = await alertsRepo.list();
-  await auditRepo.log({ professionalId: req.professional.id, action: 'list_alerts', resourceType: 'alert' });
-  res.json(alerts);
-});
+    let alert = await repos.alerts.create(ctx, {
+      id: nanoid(10), sessionId: b.sessionId, userId: user?.id || null, userName: user?.name || b.userName || null,
+      category: b.category, severity: b.severity, excerpt: b.excerpt.slice(0, 500), source: b.source,
+    });
 
-const reviewSchema = z.object({ reviewerNote: z.string().max(1000).optional().nullable() });
+    if (b.severity === 'alto' || b.severity === 'critico') {
+      const sys = systemCtx();
+      const [emailResult, smsResult, contactResult] = await Promise.all([
+        services.email.sendAlert(alert), services.proSms.sendAlert(alert), notifyEmergencyContact(req, alert),
+      ]);
+      alert = (await repos.alerts.setNotificationResults(sys, alert.id, { emailResult, smsResult })) || alert;
+      if (contactResult) {
+        alert = (await repos.alerts.setContactResult(sys, alert.id, contactResult)) || alert;
+        alert.notifications.contactSms.alreadyNotified = Boolean(contactResult.alreadyNotified);
+      }
+    }
 
-alertsRouter.patch('/:id/review', requireAuth, async (req, res) => {
-  const parsed = reviewSchema.safeParse(req.body || {});
-  const existing = await alertsRepo.findById(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Alerta no encontrada' });
+    try {
+      realtime.emit('alert:new', alert);
+    } catch {
+      /* el tiempo real nunca debe impedir responder */
+    }
+    return res.status(201).json({ id: alert.id, notifications: publicNotifications(alert.notifications) });
+  }));
 
-  const updated = await alertsRepo.markReviewed(req.params.id, {
-    reviewedById: req.professional.id,
-    reviewerNote: parsed.success ? parsed.data.reviewerNote : null,
-  });
-  await auditRepo.log({ professionalId: req.professional.id, action: 'review_alert', resourceType: 'alert', resourceId: req.params.id });
-  emitToProfessionals('alert:reviewed', updated);
-  res.json(updated);
-});
+  router.get('/', validate({ query: v.object(paginationQuery) }), wrap(async (req, res) => {
+    const page = parsePagination(req.valid.query);
+    if (!page.ok) return res.status(400).json({ error: page.error });
+    const alerts = await repos.alerts.list(professionalCtx(req.professional), page);
+    await audit(professionalCtx(req.professional), { professionalId: req.professional.id, action: 'list_alerts', resourceType: 'alert' });
+    setPaginationHeaders(res, { ...page, returned: alerts.length });
+    return res.json(alerts);
+  }));
+
+  router.patch('/:id/review', validate({ params: idParam('id'), body: reviewSchema }), wrap(async (req, res) => {
+    const ctx = professionalCtx(req.professional);
+    const existing = await repos.alerts.findById(ctx, req.valid.params.id);
+    if (!existing) return res.status(404).json({ error: 'Alerta no encontrada' });
+    const updated = await repos.alerts.markReviewed(ctx, existing.id, { reviewedById: req.professional.id, reviewerNote: req.valid.body.reviewerNote });
+    await audit(ctx, { professionalId: req.professional.id, action: 'review_alert', resourceType: 'alert', resourceId: existing.id });
+    try {
+      realtime.emit('alert:reviewed', updated);
+    } catch {
+      /* ver arriba */
+    }
+    return res.json(updated);
+  }));
+
+  return router;
+}

@@ -1,17 +1,17 @@
-const STORAGE_KEY = 'aimotion_professional_session';
+// Sesion de PROFESIONAL en el navegador. Guarda solo el perfil visible (nombre,
+// rol...), que no es secreto. El token de sesion vive en una cookie HttpOnly que
+// JavaScript no puede leer: un XSS ya no puede robar la sesion.
+const KEY = 'aimotion_professional_profile';
+// Versiones anteriores guardaban el token aqui: se elimina por higiene.
+try { localStorage.removeItem('aimotion_professional_session'); } catch { /* sin acceso a storage */ }
 
-// Nota de seguridad para el documento de monografía: guardar el JWT en
-// localStorage es una simplificación aceptable para un prototipo académico,
-// pero es vulnerable a robo vía XSS. Un despliegue real debería usar una
-// cookie httpOnly + SameSite=Strict emitida por el backend en vez de esto.
-
-export function saveSession({ token, professional }) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, professional }));
+export function saveSession({ professional }) {
+  localStorage.setItem(KEY, JSON.stringify({ professional }));
 }
 
 export function getSession() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(KEY);
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -19,9 +19,5 @@ export function getSession() {
 }
 
 export function clearSession() {
-  localStorage.removeItem(STORAGE_KEY);
-}
-
-export function getToken() {
-  return getSession()?.token || null;
+  localStorage.removeItem(KEY);
 }

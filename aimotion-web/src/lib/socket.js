@@ -4,13 +4,10 @@ const SOCKET_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
 let socket = null;
 
-/** Conecta el socket autenticado con el JWT del profesional. Idempotente. */
-export function connectSocket(token) {
+/** Conecta el WebSocket. La autenticacion va en la cookie HttpOnly (withCredentials). Idempotente. */
+export function connectSocket() {
   if (socket?.connected) return socket;
-  socket = io(SOCKET_URL, {
-    auth: { token },
-    transports: ['websocket', 'polling'],
-  });
+  socket = io(SOCKET_URL, { withCredentials: true, transports: ['websocket', 'polling'] });
   return socket;
 }
 

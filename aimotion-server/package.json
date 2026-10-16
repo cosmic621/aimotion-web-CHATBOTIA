@@ -3,14 +3,23 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Backend de AIMotion: persistencia de tamizajes clinicos y motor de escalamiento de alertas (email/SMS) hacia el profesional a cargo.",
+  "description": "Backend de AIMotion: API segura (cookies HttpOnly, CSRF, RLS, cifrado de datos sensibles) para tamizaje, alertas de riesgo y seguimiento.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
     "migrate": "node src/db/migrate.js",
+    "migrate:rls": "node src/db/migrate.js --rls",
+    "setup-roles": "node scripts/setupRoles.js",
     "create-professional": "node scripts/createProfessional.js",
-    "test-sms": "node scripts/testSms.js"
+    "generate-keys": "node scripts/generateKeys.js",
+    "encrypt-existing": "node scripts/encryptExisting.js",
+    "test-rls": "node scripts/testRls.js",
+    "test-sms": "node scripts/testSms.js",
+    "scan-secrets": "node scripts/scanSecrets.js",
+    "test": "node --test \"tests/**/*.test.js\"",
+    "test:unit": "node --test \"tests/*.test.js\"",
+    "audit": "npm audit --audit-level=high"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -22,7 +31,9 @@
     "nodemailer": "^6.9.14",
     "pg": "^8.23.0",
     "socket.io": "^4.8.3",
-    "twilio": "^5.3.0",
-    "zod": "^4.6.1"
+    "twilio": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

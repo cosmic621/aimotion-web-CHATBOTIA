@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test:bot": "node scripts/test-bot.mjs",
     "test:risk": "node scripts/test-risk.mjs",
-    "test": "node scripts/test-risk.mjs && node scripts/test-bot.mjs"
+    "test": "node scripts/test-risk.mjs && node scripts/test-bot.mjs && node scripts/test-security.mjs",
+    "test:security": "node scripts/test-security.mjs",
+    "audit": "npm audit --audit-level=high"
   },
   "dependencies": {
     "lucide-react": "^0.554.0",
