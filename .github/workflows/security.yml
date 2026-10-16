@@ -38,7 +38,7 @@ jobs:
       - name: Escaner propio (archivos actuales)
         run: cd aimotion-server && node scripts/scanSecrets.js ..
       - name: Gitleaks (historial de git)
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
