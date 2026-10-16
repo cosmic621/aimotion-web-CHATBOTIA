@@ -20,7 +20,7 @@ jobs:
         working-directory: ${{ matrix.dir }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund   # cambia a "npm ci" cuando el lockfile este regenerado
@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # historial completo: tambien busca secretos en commits antiguos
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Escaner propio (archivos actuales)
@@ -49,7 +49,7 @@ jobs:
         dir: [aimotion-server, aimotion-web]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - name: Auditoria de dependencias (falla con severidad alta o critica)
