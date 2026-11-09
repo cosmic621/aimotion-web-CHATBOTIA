@@ -15,7 +15,7 @@ const AIMOTIONWebsite = () => {
   const sessionId = getSessionId();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50">
+    <div className="min-h-screen bg-gradient-to-br from-brand-50 via-white to-celeste-50">
       <Header activeSection={activeSection} onNavigate={setActiveSection} />
 
       <div className="container mx-auto px-6 py-8">

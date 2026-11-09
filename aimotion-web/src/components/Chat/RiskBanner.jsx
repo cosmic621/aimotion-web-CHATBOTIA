@@ -33,7 +33,7 @@ export default function RiskBanner({ category, notificationStatus, onContinue })
 
         <div
           className={`flex items-start gap-3 p-4 rounded-2xl ${
-            anySent ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'
+            anySent ? 'bg-brand-50 text-brand-800' : 'bg-gold-50 text-gold-800'
           }`}
         >
           {anySent ? <CheckCircle2 className="w-6 h-6 flex-shrink-0" /> : <AlertTriangle className="w-6 h-6 flex-shrink-0" />}
@@ -45,7 +45,7 @@ export default function RiskBanner({ category, notificationStatus, onContinue })
         </div>
 
         {notificationStatus?.contactSms?.sent && (
-          <div className="flex items-start gap-3 p-4 rounded-2xl bg-green-50 text-green-800">
+          <div className="flex items-start gap-3 p-4 rounded-2xl bg-brand-50 text-brand-800">
             <CheckCircle2 className="w-6 h-6 flex-shrink-0" />
             <p className="text-sm">
               También le enviamos un SMS a tu contacto de emergencia para que pueda comunicarse contigo.

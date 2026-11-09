@@ -9,8 +9,8 @@ import UsersPanel from './UsersPanel';
 
 const SEVERITY_STYLES = {
   critico: 'bg-red-100 text-red-700 border-red-300',
-  alto: 'bg-amber-100 text-amber-700 border-amber-300',
-  moderado: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+  alto: 'bg-gold-100 text-gold-800 border-gold-500',
+  moderado: 'bg-gold-50 text-gold-700 border-gold-200',
 };
 
 export default function Dashboard() {
@@ -103,13 +103,13 @@ export default function Dashboard() {
           <h2 className="text-3xl font-bold text-gray-900">Panel Profesional</h2>
           <p className="text-gray-500 text-sm flex items-center gap-2">
             {professional.name} · {professional.role === 'ADMIN' ? 'Administrador' : 'Psicólogo/a'}
-            <span className={`flex items-center gap-1 text-xs font-semibold ${liveConnected ? 'text-green-600' : 'text-gray-400'}`}>
+            <span className={`flex items-center gap-1 text-xs font-semibold ${liveConnected ? 'text-brand-600' : 'text-gray-400'}`}>
               <Radio className="w-3 h-3" /> {liveConnected ? 'En vivo' : 'Sin conexión en vivo'}
             </span>
           </p>
         </div>
         <div className="flex items-center gap-4">
-          <button onClick={loadData} className="flex items-center gap-2 text-purple-600 hover:underline text-sm">
+          <button onClick={loadData} className="flex items-center gap-2 text-brand-600 hover:underline text-sm">
             <RefreshCw className="w-4 h-4" /> Actualizar
           </button>
           <button onClick={handleLogout} className="flex items-center gap-2 text-gray-500 hover:text-red-600 text-sm">
@@ -123,19 +123,19 @@ export default function Dashboard() {
       <div className="flex gap-3 mb-6">
         <button
           onClick={() => setTab('alertas')}
-          className={`px-5 py-2 rounded-full text-sm font-semibold ${tab === 'alertas' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600'}`}
+          className={`px-5 py-2 rounded-full text-sm font-semibold ${tab === 'alertas' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600'}`}
         >
           Alertas de riesgo ({alerts.filter((a) => a.status === 'pendiente').length} pendientes)
         </button>
         <button
           onClick={() => setTab('tamizajes')}
-          className={`px-5 py-2 rounded-full text-sm font-semibold ${tab === 'tamizajes' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600'}`}
+          className={`px-5 py-2 rounded-full text-sm font-semibold ${tab === 'tamizajes' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600'}`}
         >
           Tamizajes ({screenings.length})
         </button>
         <button
           onClick={() => setTab('usuarios')}
-          className={`px-5 py-2 rounded-full text-sm font-semibold ${tab === 'usuarios' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600'}`}
+          className={`px-5 py-2 rounded-full text-sm font-semibold ${tab === 'usuarios' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600'}`}
         >
           Usuarios y planes
         </button>
@@ -150,7 +150,7 @@ export default function Dashboard() {
             <div
               key={alert.id}
               className={`bg-white rounded-2xl shadow p-6 border-l-4 transition-all ${SEVERITY_STYLES[alert.severity] || ''} ${
-                justArrivedId === alert.id ? 'ring-4 ring-purple-300 animate-pulse' : ''
+                justArrivedId === alert.id ? 'ring-4 ring-brand-300 animate-pulse' : ''
               }`}
             >
               <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -162,7 +162,7 @@ export default function Dashboard() {
                       {alert.severity}
                     </span>
                     {justArrivedId === alert.id && (
-                      <span className="text-xs px-2 py-1 rounded-full bg-purple-600 text-white font-semibold animate-bounce">
+                      <span className="text-xs px-2 py-1 rounded-full bg-brand-600 text-white font-semibold animate-bounce">
                         Nueva
                       </span>
                     )}
@@ -175,18 +175,18 @@ export default function Dashboard() {
                     Email: {alert.notifications?.email?.sent ? 'enviado ✓' : 'no enviado'} · SMS: {alert.notifications?.sms?.sent ? 'enviado ✓' : 'no enviado'} · SMS a contacto de emergencia: {alert.notifications?.contactSms?.sent ? 'enviado ✓' : 'no enviado'}
                   </p>
                   {alert.status === 'revisado' && alert.reviewerNote && (
-                    <p className="text-xs text-green-700 mt-1">Nota: {alert.reviewerNote}</p>
+                    <p className="text-xs text-brand-700 mt-1">Nota: {alert.reviewerNote}</p>
                   )}
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   {alert.status === 'revisado' ? (
-                    <span className="flex items-center gap-1 text-green-600 text-sm font-semibold">
+                    <span className="flex items-center gap-1 text-brand-600 text-sm font-semibold">
                       <CheckCircle2 className="w-4 h-4" /> Revisado
                     </span>
                   ) : (
                     <button
                       onClick={() => handleReview(alert.id)}
-                      className="bg-green-600 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-green-700"
+                      className="bg-brand-600 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-brand-700"
                     >
                       Marcar como revisado
                     </button>
@@ -204,7 +204,7 @@ export default function Dashboard() {
           {screenings.map((s) => (
             <div key={s.id} className="bg-white rounded-2xl shadow p-6 flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-3">
-                <ClipboardList className="w-6 h-6 text-purple-600" />
+                <ClipboardList className="w-6 h-6 text-brand-600" />
                 <div>
                   <p className="font-bold text-gray-900">
                     {s.type} · {s.userName || 'Sin identificar'}
@@ -213,7 +213,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold text-purple-700">{s.totalScore}</p>
+                <p className="text-2xl font-bold text-brand-700">{s.totalScore}</p>
                 <p className="text-sm text-gray-500 capitalize">{s.severity}</p>
               </div>
             </div>

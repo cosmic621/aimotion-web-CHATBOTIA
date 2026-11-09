@@ -26,7 +26,7 @@ import { TOPICS, p, LINES } from './botKnowledge.js';
 import { EXTRA_TOPICS, UNIVERSAL, FOLLOW_UPS, DEEPENING_POOL, NEXT_STEPS } from './botKnowledge2.js';
 
 export const INTRO_MESSAGE =
-  'Hola, qué bueno que estés aquí. 💜\n\n' +
+  'Hola, qué bueno que estés aquí. 💚\n\n' +
   'Quiero ser transparente contigo desde el inicio: soy un asistente de apoyo y tamizaje, no un ' +
   'profesional de salud mental. No diagnostico ni reemplazo una consulta clínica. Lo que sí puedo ' +
   'hacer es escucharte, darte información útil sobre depresión, ansiedad, estrés y esquizofrenia ' +
@@ -136,25 +136,25 @@ const SMALLTALK = [
   {
     test: (norm, t) => t.length <= 4 && /^(hola|holi|holaa+|ola|buenas|buenos dias|buen dia|buenas tardes|buenas noches|hey|hi|saludos|que mas|quiubo|buenas buenas)\b/.test(norm),
     reply: (n, name) => pick([
-      `Hola ${name || ''}, qué bueno verte por aquí. 💜 ¿Cómo está tu ánimo hoy?`,
+      `Hola ${name || ''}, qué bueno verte por aquí. 💚 ¿Cómo está tu ánimo hoy?`,
       `Hola. ¿Cómo estás llegando hoy${name ? ', ' + name : ''}? Puedes contarme o preguntarme lo que quieras.`,
-      `Hola ${name || ''} 💜 Te escucho: ¿qué te gustaría contarme o saber?`,
+      `Hola ${name || ''} 💚 Te escucho: ¿qué te gustaría contarme o saber?`,
     ]),
   },
   {
     test: (norm, t) => t.length <= 6 && /\b(gracias|agradezco|thank|thanks)\b/.test(norm),
     reply: (n) => pick([
       `${n}no hay nada que agradecer. Gracias a ti por confiar y compartir esto, eso ya requiere valentía. ¿Hay algo más en lo que pueda acompañarte?`,
-      `${n}con gusto. Estoy aquí para lo que necesites; si quieres seguir hablando o preguntarme algo más, adelante. 💜`,
+      `${n}con gusto. Estoy aquí para lo que necesites; si quieres seguir hablando o preguntarme algo más, adelante. 💚`,
     ]),
   },
   {
     test: (norm, t) => t.length <= 8 && /\b(adios|chao|chau|hasta luego|nos vemos|me voy|bye|hasta pronto|hasta manana)\b/.test(norm),
-    reply: (n) => `${n}antes de irte: no estás enfrentando esto solo/a, aunque a veces se sienta así. Este espacio y el equipo profesional detrás seguirán aquí. Si más tarde te sientes mal, vuelve o llama a ${LINES}. Cuídate mucho. 💜`,
+    reply: (n) => `${n}antes de irte: no estás enfrentando esto solo/a, aunque a veces se sienta así. Este espacio y el equipo profesional detrás seguirán aquí. Si más tarde te sientes mal, vuelve o llama a ${LINES}. Cuídate mucho. 💚`,
   },
   {
     test: (norm) => /\b(como estas|como te va|como andas|que tal estas|como te sientes tu)\b/.test(norm),
-    reply: () => 'Qué lindo que preguntes. 💜 Estoy bien para escucharte. Pero este espacio es para ti: dime, ¿cómo estás TÚ de verdad?',
+    reply: () => 'Qué lindo que preguntes. 💚 Estoy bien para escucharte. Pero este espacio es para ti: dime, ¿cómo estás TÚ de verdad?',
   },
   {
     test: (norm) => /\b(quien eres|que eres|eres (un |una )?(robot|humano|humana|persona|ia|bot|maquina|real|psicologo|psicologa|medico|doctor)|con quien hablo|como te llamas|tu nombre|eres inteligencia artificial)\b/.test(norm),
@@ -191,11 +191,11 @@ const SMALLTALK = [
   },
   {
     test: (norm) => /\b(no quiero hablar|no tengo ganas de hablar|dejame en paz|no me preguntes|no quiero contar|prefiero no hablar|callate)\b/.test(norm),
-    reply: (n) => `${n}está bien, no tienes que hablar si no quieres, y no te voy a presionar. Aquí estaré cuando lo necesites. Si prefieres otra forma, puedes hacer un cuestionario de tamizaje (PHQ-9 / GAD-7) sin tener que explicar nada, o llamar a ${LINES}. 💜`,
+    reply: (n) => `${n}está bien, no tienes que hablar si no quieres, y no te voy a presionar. Aquí estaré cuando lo necesites. Si prefieres otra forma, puedes hacer un cuestionario de tamizaje (PHQ-9 / GAD-7) sin tener que explicar nada, o llamar a ${LINES}. 💚`,
   },
   {
     test: (norm) => /\b(eres (muy )?(buen|lind|amable|genial|util|increible)\w*|me caes bien|me ayudas mucho|me ayudaste|me haces sentir mejor|me sirvio)\b/.test(norm),
-    reply: (n) => `${n}me alegra mucho que te sientas acompañado/a. 💜 El mérito es tuyo por animarte a hablar. ¿Hay algo más que quieras contarme o preguntarme?`,
+    reply: (n) => `${n}me alegra mucho que te sientas acompañado/a. 💚 El mérito es tuyo por animarte a hablar. ¿Hay algo más que quieras contarme o preguntarme?`,
   },
   {
     test: (norm) => /\b(chiste|cuentame algo gracioso|hazme reir|algo divertido|cuentame un cuento)\b/.test(norm),
@@ -215,7 +215,7 @@ const SMALLTALK = [
   },
   {
     test: (norm) => /\b(clima|futbol|partido|receta de|politica|presidente|bitcoin|criptomoneda|tarea de|resuelve|calcula|capital de|quien gano|pelicula|cancion|musica|horoscopo|loteria)\b/.test(norm),
-    reply: (n) => `${n}eso se sale de lo que mejor sé hacer: mi especialidad es acompañarte en temas de bienestar emocional (depresión, ansiedad, estrés, esquizofrenia) y orientarte hacia ayuda profesional. Para ese tema te recomiendo otra herramienta. Pero si algo de eso te está generando estrés o preocupación, cuéntamelo: ahí sí puedo ayudarte. 💜`,
+    reply: (n) => `${n}eso se sale de lo que mejor sé hacer: mi especialidad es acompañarte en temas de bienestar emocional (depresión, ansiedad, estrés, esquizofrenia) y orientarte hacia ayuda profesional. Para ese tema te recomiendo otra herramienta. Pero si algo de eso te está generando estrés o preocupación, cuéntamelo: ahí sí puedo ayudarte. 💚`,
   },
 ];
 
@@ -273,7 +273,7 @@ function fallbackReply(msg, norm, tokens, n) {
   }
   if (pos) {
     return p(
-      `${n}me alegra leer eso. 💜 Aprovecha para notar qué te ayudó a estar mejor: sirve para los días más difíciles.`,
+      `${n}me alegra leer eso. 💚 Aprovecha para notar qué te ayudó a estar mejor: sirve para los días más difíciles.`,
       '¿Qué te gustaría hacer hoy: conversar sobre algo que tengas en mente, informarte sobre algún tema (depresión, ansiedad, estrés, esquizofrenia) o aprender alguna técnica de bienestar?'
     );
   }
@@ -376,12 +376,12 @@ export function getBotResponse(userMessage, userName, context = {}) {
     ...over,
   });
 
-  if (!norm) return out('Te leo. Escribe lo que quieras con tus palabras, o pregúntame lo que necesites saber. 💜');
+  if (!norm) return out('Te leo. Escribe lo que quieras con tus palabras, o pregúntame lo que necesites saber. 💚');
 
   // 1. Nombre
   const name = !userName ? detectName(msg) : null;
   if (name) {
-    return out(`Un gusto conocerte, ${name}. 💜 Gracias por compartir tu nombre.\n\n¿Qué te trae por aquí hoy, ${name}?`, { detectedName: name });
+    return out(`Un gusto conocerte, ${name}. 💚 Gracias por compartir tu nombre.\n\n¿Qué te trae por aquí hoy, ${name}?`, { detectedName: name });
   }
 
   // 2. Emergencia expresa

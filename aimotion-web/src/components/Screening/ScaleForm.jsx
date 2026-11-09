@@ -95,14 +95,14 @@ export default function ScaleForm({ type, sessionId, userName }) {
   if (result) {
     return (
       <div className="bg-white rounded-3xl shadow-xl p-10 text-center">
-        <CheckCircle2 className="w-14 h-14 text-green-600 mx-auto mb-4" />
+        <CheckCircle2 className="w-14 h-14 text-brand-600 mx-auto mb-4" />
         <h3 className="text-2xl font-bold text-gray-900 mb-2">Tamizaje completado</h3>
         <p className="text-gray-600 mb-6">
           Puntaje total: <strong>{result.total}</strong> — Nivel: <strong className="capitalize">{result.severity}</strong>
         </p>
 
         {saveError ? (
-          <div className="bg-amber-50 text-amber-800 rounded-2xl p-4 max-w-lg mx-auto mb-4 text-sm">
+          <div className="bg-gold-50 text-gold-800 rounded-2xl p-4 max-w-lg mx-auto mb-4 text-sm">
             <AlertTriangle className="w-5 h-5 inline mr-2" />
             No pudimos enviar tu resultado al profesional ({saveError}).
             <button onClick={retrySave} disabled={submitting} className="block mx-auto mt-2 font-semibold underline">
@@ -125,7 +125,7 @@ export default function ScaleForm({ type, sessionId, userName }) {
       <p className="text-gray-500 mb-4 text-sm">
         Durante las últimas 2 semanas, ¿con qué frecuencia te ha molestado alguno de los siguientes problemas?
       </p>
-      <p className="text-sm font-semibold text-purple-700 mb-8">
+      <p className="text-sm font-semibold text-brand-700 mb-8">
         Respondidas: {answeredCount} de {config.questions.length}
       </p>
 
@@ -150,8 +150,8 @@ export default function ScaleForm({ type, sessionId, userName }) {
                     onClick={() => handleSelect(qIndex, opt.value)}
                     className={`text-sm px-3 py-2 rounded-xl border-2 transition ${
                       answers[qIndex] === opt.value
-                        ? 'border-purple-600 bg-purple-50 text-purple-700 font-semibold'
-                        : 'border-gray-200 text-gray-600 hover:border-purple-300'
+                        ? 'border-brand-600 bg-brand-50 text-brand-700 font-semibold'
+                        : 'border-gray-200 text-gray-600 hover:border-brand-300'
                     }`}
                   >
                     {opt.label}
@@ -172,7 +172,7 @@ export default function ScaleForm({ type, sessionId, userName }) {
       <button
         onClick={handleSubmit}
         disabled={submitting}
-        className="mt-6 w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-4 rounded-full font-semibold disabled:opacity-50 hover:shadow-lg transition"
+        className="mt-6 w-full bg-gradient-to-r from-brand-600 to-brand-500 text-white py-4 rounded-full font-semibold disabled:opacity-50 hover:shadow-lg transition"
       >
         {submitting ? 'Enviando...' : 'Finalizar y enviar para revisión profesional'}
       </button>

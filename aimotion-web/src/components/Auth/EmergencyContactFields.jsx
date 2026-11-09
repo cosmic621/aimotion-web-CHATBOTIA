@@ -1,7 +1,7 @@
 import React from 'react';
 
 const inputClass =
-  'w-full border-2 border-purple-200 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-600';
+  'w-full border-2 border-brand-200 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600';
 
 /**
  * Campos del contacto de emergencia + consentimiento explicito. Se usa al
@@ -12,8 +12,8 @@ export default function EmergencyContactFields({ value, onChange }) {
   const set = (field) => (e) => onChange({ ...value, [field]: e.target.value });
 
   return (
-    <fieldset className="space-y-3 border-2 border-dashed border-purple-200 rounded-2xl p-4">
-      <legend className="px-2 text-xs font-bold text-purple-700">Contacto de emergencia</legend>
+    <fieldset className="space-y-3 border-2 border-dashed border-brand-200 rounded-2xl p-4">
+      <legend className="px-2 text-xs font-bold text-brand-700">Contacto de emergencia</legend>
       <p className="text-xs text-gray-500">
         Una persona de confianza (papá, mamá, acudiente, pareja, amistad). Si el sistema detecta una
         situación de riesgo crítico, le enviaremos un SMS breve para que pueda comunicarse contigo.
@@ -40,7 +40,7 @@ export default function EmergencyContactFields({ value, onChange }) {
           checked={value.consent}
           onChange={(e) => onChange({ ...value, consent: e.target.checked })}
           required
-          className="mt-0.5 accent-purple-600"
+          className="mt-0.5 accent-brand-600"
         />
         <span>
           Autorizo que AIMotion envíe un SMS breve a este contacto si detecta una situación de riesgo

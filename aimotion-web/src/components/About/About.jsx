@@ -14,25 +14,25 @@ export default function About() {
         </p>
 
         <div className="grid md:grid-cols-3 gap-8 mt-12">
-          <div className="text-center p-6 bg-purple-50 rounded-xl">
-            <Target className="w-12 h-12 text-purple-600 mx-auto mb-4" />
+          <div className="text-center p-6 bg-brand-50 rounded-xl">
+            <Target className="w-12 h-12 text-brand-600 mx-auto mb-4" />
             <h3 className="font-bold text-xl mb-2">Propósito</h3>
             <p className="text-gray-600">Brindar una herramienta de tamizaje accesible que facilite el trabajo del profesional, no que lo reemplace.</p>
           </div>
-          <div className="text-center p-6 bg-blue-50 rounded-xl">
-            <Heart className="w-12 h-12 text-blue-600 mx-auto mb-4" />
+          <div className="text-center p-6 bg-celeste-50 rounded-xl">
+            <Heart className="w-12 h-12 text-celeste-600 mx-auto mb-4" />
             <h3 className="font-bold text-xl mb-2">Misión</h3>
             <p className="text-gray-600">Estructurar la anamnesis y detectar señales de riesgo temprano, apoyando la formulación clínica.</p>
           </div>
-          <div className="text-center p-6 bg-pink-50 rounded-xl">
-            <Brain className="w-12 h-12 text-pink-600 mx-auto mb-4" />
+          <div className="text-center p-6 bg-gold-50 rounded-xl">
+            <Brain className="w-12 h-12 text-gold-600 mx-auto mb-4" />
             <h3 className="font-bold text-xl mb-2">Visión</h3>
             <p className="text-gray-600">Ser un referente académico en soporte tecnológico responsable para psicología clínica.</p>
           </div>
         </div>
       </section>
 
-      <section className="bg-gradient-to-r from-purple-100 to-blue-100 rounded-3xl p-12">
+      <section className="bg-gradient-to-r from-brand-100 to-celeste-100 rounded-3xl p-12">
         <h3 className="text-3xl font-bold mb-6 text-gray-900">El problema que abordamos</h3>
         <p className="text-lg text-gray-700 mb-4">
           El <strong>14% de la población mundial</strong> presenta algún problema de salud mental, y buena
@@ -42,9 +42,9 @@ export default function About() {
         </p>
       </section>
 
-      <section className="bg-white rounded-3xl p-12 shadow-xl border-l-4 border-amber-500">
+      <section className="bg-white rounded-3xl p-12 shadow-xl border-l-4 border-gold-500">
         <div className="flex items-start gap-4">
-          <ShieldAlert className="w-10 h-10 text-amber-600 flex-shrink-0 mt-1" />
+          <ShieldAlert className="w-10 h-10 text-gold-600 flex-shrink-0 mt-1" />
           <div>
             <h3 className="text-2xl font-bold text-gray-900 mb-3">Alcance y límites del sistema</h3>
             <ul className="text-gray-700 space-y-2 list-disc pl-5">

@@ -55,7 +55,7 @@ export default function MyPlans() {
     return (
       <div className="max-w-md mx-auto">
         <div className="text-center mb-6">
-          <Lock className="w-10 h-10 text-purple-600 mx-auto mb-3" />
+          <Lock className="w-10 h-10 text-brand-600 mx-auto mb-3" />
           <h2 className="text-2xl font-bold text-gray-900">Mi Progreso</h2>
           <p className="text-gray-500 text-sm mt-1">
             Aquí verás el plan semanal que tu profesional te asigne. Necesitas una cuenta para esto.
@@ -69,7 +69,7 @@ export default function MyPlans() {
   return (
     <div className="max-w-3xl mx-auto">
       <div className="text-center mb-8">
-        <CalendarCheck className="w-10 h-10 text-purple-600 mx-auto mb-3" />
+        <CalendarCheck className="w-10 h-10 text-brand-600 mx-auto mb-3" />
         <h2 className="text-3xl font-bold text-gray-900">Mi Progreso</h2>
         <p className="text-gray-500 text-sm mt-1">Hola {patient.name} — aquí está tu plan de seguimiento.</p>
         <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-red-600 mt-2 underline">
@@ -93,7 +93,7 @@ export default function MyPlans() {
           <div key={plan.id} className="bg-white rounded-3xl shadow-xl p-8">
             <div className="flex items-center justify-between mb-1">
               <h3 className="text-xl font-bold text-gray-900">{plan.title}</h3>
-              <span className="text-xs px-3 py-1 rounded-full bg-purple-100 text-purple-700 font-semibold">
+              <span className="text-xs px-3 py-1 rounded-full bg-brand-100 text-brand-700 font-semibold">
                 {CONDITION_LABELS[plan.condition] || plan.condition}
               </span>
             </div>
@@ -107,16 +107,16 @@ export default function MyPlans() {
                   key={week.week_number}
                   onClick={() => toggleWeek(plan, week)}
                   className={`w-full text-left flex items-start gap-3 p-4 rounded-2xl border-2 transition ${
-                    week.completed ? 'border-green-200 bg-green-50' : 'border-gray-100 hover:border-purple-200'
+                    week.completed ? 'border-brand-200 bg-brand-50' : 'border-gray-100 hover:border-brand-200'
                   }`}
                 >
                   {week.completed ? (
-                    <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
+                    <CheckCircle2 className="w-6 h-6 text-brand-600 flex-shrink-0 mt-0.5" />
                   ) : (
                     <Circle className="w-6 h-6 text-gray-300 flex-shrink-0 mt-0.5" />
                   )}
                   <div>
-                    <p className={`font-semibold ${week.completed ? 'text-green-800' : 'text-gray-900'}`}>
+                    <p className={`font-semibold ${week.completed ? 'text-brand-800' : 'text-gray-900'}`}>
                       Semana {week.week_number}: {week.title}
                     </p>
                     <p className="text-sm text-gray-600 mt-1">{week.description}</p>

@@ -39,7 +39,7 @@ export default function EmergencyContactCard({ patient, onUpdated }) {
   return (
     <div className="bg-white rounded-3xl shadow p-6 mb-6">
       <div className="flex items-center gap-2 mb-2">
-        <PhoneCall className="w-5 h-5 text-purple-600" />
+        <PhoneCall className="w-5 h-5 text-brand-600" />
         <h3 className="font-bold text-gray-900">Contacto de emergencia</h3>
       </div>
 
@@ -51,21 +51,21 @@ export default function EmergencyContactCard({ patient, onUpdated }) {
           <p className="text-xs text-gray-400 mt-1">
             Solo recibe un SMS breve si se detecta un riesgo crítico. No ve el contenido de tus conversaciones.
           </p>
-          <button onClick={() => setEditing(true)} className="text-purple-600 text-xs hover:underline mt-2">
+          <button onClick={() => setEditing(true)} className="text-brand-600 text-xs hover:underline mt-2">
             Cambiar contacto
           </button>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-3">
           {!current && (
-            <p className="text-sm text-amber-700 bg-amber-50 rounded-xl p-3">
+            <p className="text-sm text-gold-700 bg-gold-50 rounded-xl p-3">
               Aún no tienes un contacto de emergencia. Agrégalo para que alguien de confianza pueda apoyarte.
             </p>
           )}
           <EmergencyContactFields value={form} onChange={setForm} />
           {error && <p className="text-red-600 text-xs">{error}</p>}
           <div className="flex gap-3">
-            <button type="submit" disabled={saving} className="bg-purple-600 text-white px-5 py-2 rounded-full text-sm font-semibold disabled:opacity-50">
+            <button type="submit" disabled={saving} className="bg-brand-600 text-white px-5 py-2 rounded-full text-sm font-semibold disabled:opacity-50">
               {saving ? 'Guardando...' : 'Guardar contacto'}
             </button>
             {current && (

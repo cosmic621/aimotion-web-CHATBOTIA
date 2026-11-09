@@ -32,3 +32,65 @@
 .animate-message-in {
   animation: message-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* Paleta institucional.
+   brand  = Verde institucional #004828 (color principal, botones, enlaces, iconos)
+   gold   = Amarillo institucional #FBE122 (400) y Dorado #D9A900 (500): acentos y advertencias
+   celeste= Azul celeste #48C7F4 (400): color secundario
+   red    = Rojo #EC1C24: alertas y errores
+   gray   = Gris neutro, con #666666 como gris de texto secundario */
+@theme {
+  --color-brand-50: #eef6f1;
+  --color-brand-100: #d5e9dc;
+  --color-brand-200: #a9d1b8;
+  --color-brand-300: #74b28c;
+  --color-brand-400: #3f8f61;
+  --color-brand-500: #17703f;
+  --color-brand-600: #004828;
+  --color-brand-700: #003a20;
+  --color-brand-800: #002d19;
+  --color-brand-900: #001f11;
+
+  --color-gold-50: #fffce6;
+  --color-gold-100: #fef6b8;
+  --color-gold-200: #fdee7a;
+  --color-gold-300: #fceb6b;
+  --color-gold-400: #fbe122;
+  --color-gold-500: #d9a900;
+  --color-gold-600: #b38d00;
+  --color-gold-700: #8a6c00;
+  --color-gold-800: #6b5300;
+  --color-gold-900: #4a3a00;
+
+  --color-celeste-50: #edf9fe;
+  --color-celeste-100: #d3f1fc;
+  --color-celeste-200: #a8e3f9;
+  --color-celeste-300: #7ad5f7;
+  --color-celeste-400: #48c7f4;
+  --color-celeste-500: #1fb0e6;
+  --color-celeste-600: #1389b8;
+  --color-celeste-700: #0f6b90;
+  --color-celeste-800: #0c5370;
+  --color-celeste-900: #083a4e;
+
+  --color-red-50: #fef1f1;
+  --color-red-100: #fddcdd;
+  --color-red-200: #fbbcbe;
+  --color-red-300: #f68c90;
+  --color-red-400: #f25860;
+  --color-red-500: #ec1c24;
+  --color-red-600: #ec1c24;
+  --color-red-700: #be1218;
+  --color-red-800: #8f0d12;
+
+  --color-gray-50: #f6f6f6;
+  --color-gray-100: #ececec;
+  --color-gray-200: #dddddd;
+  --color-gray-300: #c4c4c4;
+  --color-gray-400: #999999;
+  --color-gray-500: #666666;
+  --color-gray-600: #555555;
+  --color-gray-700: #3f3f3f;
+  --color-gray-800: #2a2a2a;
+  --color-gray-900: #171717;
+}
