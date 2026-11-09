@@ -35,6 +35,19 @@ describe('accessPolicy: tabla central (deny-by-default)', () => {
     assert.equal(matchPolicy('GET', '/api/treatment-plans/mine'), 'patient');
     assert.equal(matchPolicy('PATCH', '/api/patient-auth/contact'), 'patient');
   });
+  it('rutas del funcionario y del administrador: nunca públicas', () => {
+    for (const [m, p] of [['GET', '/api/staff/patients'], ['GET', '/api/staff/patients/u1/history'], ['POST', '/api/staff/patients/u1/attentions'], ['GET', '/api/staff/attended']]) {
+      assert.equal(matchPolicy(m, p), 'staff', `${m} ${p}`);
+    }
+    for (const [m, p] of [
+      ['GET', '/api/admin/accounts'], ['POST', '/api/admin/accounts'], ['PATCH', '/api/admin/accounts/usuario/u1/status'],
+      ['PATCH', '/api/admin/accounts/profesional/p1/password'], ['PATCH', '/api/admin/accounts/usuario/u1/role'], ['DELETE', '/api/admin/accounts/usuario/u1'],
+    ]) assert.equal(matchPolicy(m, p), 'admin', `${m} ${p}`);
+    // métodos o rutas que no existen siguen cerrados
+    for (const [m, p] of [['PUT', '/api/admin/accounts/usuario/u1'], ['GET', '/api/admin/accounts/usuario/u1'], ['DELETE', '/api/admin/accounts'], ['DELETE', '/api/staff/patients/u1/history'], ['PATCH', '/api/admin/accounts/usuario/u1/../x/status']]) {
+      assert.equal(matchPolicy(m, p), null, `${m} ${p}`);
+    }
+  });
   it('solo estas rutas son anónimas (lista cerrada)', () => {
     const open = ACCESS_POLICY.filter(([, , l]) => l === 'public' || l === 'optional').map(([m, p]) => `${m} ${p}`).sort();
     assert.deepEqual(open, [
@@ -43,7 +56,7 @@ describe('accessPolicy: tabla central (deny-by-default)', () => {
     ]);
   });
   it('todos los niveles son válidos', () => {
-    for (const [, , level] of ACCESS_POLICY) assert.ok(['public', 'optional', 'patient', 'professional', 'admin'].includes(level));
+    for (const [, , level] of ACCESS_POLICY) assert.ok(['public', 'optional', 'patient', 'professional', 'staff', 'admin'].includes(level));
   });
 });
 
@@ -75,6 +88,21 @@ describe('accessPolicy: enforceAccess', () => {
     assert.equal((await run(guard, req('GET', '/api/admin/metrics', { professional: { id: '1', role: 'PSICOLOGO' } }))).res.statusCode, 403);
     assert.equal((await run(guard, req('GET', '/api/admin/metrics', { professional: { id: '1', role: 'ADMIN' } }))).next, true);
   });
+  it('funcionario: sin sesión → 401; usuario normal → 403; funcionario → pasa; una sesión de profesional no sirve', async () => {
+    assert.equal((await run(guard, req('GET', '/api/staff/patients'))).res.statusCode, 401);
+    assert.equal((await run(guard, req('GET', '/api/staff/patients', { user: { id: 'u1', role: 'USUARIO' } }))).res.statusCode, 403);
+    assert.equal((await run(guard, req('GET', '/api/staff/patients', { user: { id: 'u1' } }))).res.statusCode, 403, 'sin perfil conocido se trata como usuario normal');
+    assert.equal((await run(guard, req('GET', '/api/staff/patients', { user: { id: 'u1', role: 'FUNCIONARIO' } }))).next, true);
+    assert.equal((await run(guard, req('GET', '/api/staff/patients', { professional: { id: 'p1', role: 'ADMIN' } }))).res.statusCode, 401);
+  });
+  it('un administrador NO entra a las rutas de funcionario por ser admin', async () => {
+    assert.equal((await run(guard, req('GET', '/api/staff/attended', { professional: { id: 'p1', role: 'ADMIN' } }))).next, false);
+  });
+  it('cuentas: un funcionario NO accede a /api/admin; un PSICOLOGO tampoco', async () => {
+    assert.equal((await run(guard, req('DELETE', '/api/admin/accounts/usuario/u1', { user: { id: 'u1', role: 'FUNCIONARIO' } }))).res.statusCode, 401);
+    assert.equal((await run(guard, req('DELETE', '/api/admin/accounts/usuario/u1', { professional: { id: 'p1', role: 'PSICOLOGO' } }))).res.statusCode, 403);
+    assert.equal((await run(guard, req('DELETE', '/api/admin/accounts/usuario/u1', { professional: { id: 'p1', role: 'ADMIN' } }))).next, true);
+  });
   it('públicas y opcionales pasan sin sesión', async () => {
     for (const [m, u] of [['GET', '/api/health'], ['POST', '/api/auth/login'], ['POST', '/api/alerts'], ['GET', '/api/chat/messages?sessionId=x']]) {
       assert.equal((await run(guard, req(m, u))).next, true, `${m} ${u}`);
@@ -92,6 +120,13 @@ describe('accessPolicy: identificación de la sesión por cookie', () => {
     await run(auth, r);
     assert.equal(r.professional.id, 'id1');
     assert.equal(r.user, undefined);
+  });
+  it('guarda la fecha de emisión del token (iat) para poder invalidar sesiones antiguas', async () => {
+    const withIat = createAuthenticator({ verify: (t) => (t ? { sub: 'id1', iat: 1234 } : null), names });
+    const r = fakeReq({ headers: { cookie: `${names.patient}=x; ${names.professional}=y` } });
+    await run(withIat, r);
+    assert.equal(r.user.iat, 1234);
+    assert.equal(r.professional.iat, 1234);
   });
   it('reconoce la cookie de paciente', async () => {
     const r = fakeReq({ headers: { cookie: `${names.patient}=valid-patient` } });

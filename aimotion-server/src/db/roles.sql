@@ -8,9 +8,12 @@
 -- ni cambiar correos/contrasenas/severidades.
 GRANT USAGE ON SCHEMA public TO aimotion_app;
 
-GRANT SELECT ON professionals TO aimotion_app;
+-- Control de cuentas del ADMIN (las politicas RLS limitan estas operaciones al rol 'admin').
+GRANT SELECT, INSERT, DELETE ON professionals TO aimotion_app;
+GRANT UPDATE (password_hash, status, sessions_valid_after) ON professionals TO aimotion_app;
 
-GRANT SELECT, INSERT ON users TO aimotion_app;
+GRANT SELECT, INSERT, DELETE ON users TO aimotion_app;
+GRANT UPDATE (role, status, password_hash, sessions_valid_after) ON users TO aimotion_app;
 GRANT UPDATE (emergency_contact_name, emergency_contact_phone, emergency_contact_relation, contact_consent_at) ON users TO aimotion_app;
 
 GRANT SELECT, INSERT ON alerts TO aimotion_app;
@@ -22,5 +25,7 @@ GRANT SELECT, INSERT ON chat_messages TO aimotion_app;
 
 GRANT SELECT, INSERT ON treatment_plans TO aimotion_app;
 GRANT UPDATE (weeks, updated_at) ON treatment_plans TO aimotion_app;
+
+GRANT SELECT, INSERT ON staff_attentions TO aimotion_app;
 
 GRANT INSERT ON audit_log TO aimotion_app;

@@ -19,6 +19,8 @@ import { createScreeningsRouter } from './routes/screenings.js';
 import { createChatRouter } from './routes/chat.js';
 import { createTreatmentPlansRouter } from './routes/treatmentPlans.js';
 import { createAdminRouter } from './routes/admin.js';
+import { createStaffRouter } from './routes/staff.js';
+import { createSessionGuard } from './security/sessionGuard.js';
 
 // Login/registro/logout: se verifica el ORIGEN pero no se exige el token CSRF
 // (aun no hay sesion, o se esta cerrando).
@@ -39,7 +41,7 @@ export function createApp({ config, repos, db, tokens, hasher, services, limiter
   app.use(cors({
     origin: (origin, cb) => cb(null, !origin || allowed.has(origin)),
     credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
     exposedHeaders: ['X-Limit', 'X-Offset', 'X-Has-More', 'Retry-After'],
     maxAge: 600,
@@ -52,6 +54,9 @@ export function createApp({ config, repos, db, tokens, hasher, services, limiter
 
   const sessions = createSessionManager({ config });
   app.use(createAuthenticator({ verify: tokens.verify, names: sessions.names }));
+  // La sesion solo vale si la cuenta sigue activa (no suspendida ni eliminada ni con clave cambiada).
+  const sessionGuard = createSessionGuard({ repos });
+  app.use(sessionGuard.middleware);
   app.use(csrfProtection({
     secret: config.csrfSecret,
     names: sessions.names,
@@ -80,7 +85,8 @@ export function createApp({ config, repos, db, tokens, hasher, services, limiter
   app.use('/api/screenings', createScreeningsRouter({ repos, screeningLimiter: limiters.screenings, audit }));
   app.use('/api/chat', createChatRouter({ repos, chatLimiter: limiters.chat, audit }));
   app.use('/api/treatment-plans', createTreatmentPlansRouter({ repos, audit }));
-  app.use('/api/admin', createAdminRouter({ db, limiters, redactedConfig: redactConfig(config) }));
+  app.use('/api/staff', createStaffRouter({ repos, audit }));
+  app.use('/api/admin', createAdminRouter({ db, limiters, redactedConfig: redactConfig(config), repos, audit, hasher, sessionGuard }));
 
   app.use((_req, res) => res.status(404).json({ error: 'No encontrado' }));
 
@@ -91,6 +97,7 @@ export function createApp({ config, repos, db, tokens, hasher, services, limiter
     if (err.type === 'entity.too.large') return res.status(413).json({ error: 'La petición es demasiado grande' });
     if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) return res.status(400).json({ error: 'JSON inválido' });
     if (err.code === '23505') return res.status(409).json({ error: 'Ese registro ya existe' });
+    if (err.code === '23503') return res.status(409).json({ error: 'No se puede completar: la cuenta tiene registros asociados (por ejemplo, planes de tratamiento). Suspéndela en su lugar.' });
     if (err.status && err.status < 500) return res.status(err.status).json({ error: 'Petición inválida' });
     logger.error('[error]', sanitizeForLog(err.message));
     return res.status(500).json({ error: 'Error interno del servidor' });

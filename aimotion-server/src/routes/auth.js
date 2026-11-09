@@ -33,6 +33,9 @@ export function createAuthRouter({ repos, tokens, hasher, loginGuard, botGuard, 
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
     loginGuard.success(req.ip, key);
+    if ((professional.status || 'activo') !== 'activo') {
+      return res.status(403).json({ error: 'Tu cuenta está suspendida. Contacta al administrador.' });
+    }
 
     const token = tokens.signProfessional(professional);
     sessions.set(res, 'professional', token);
@@ -49,7 +52,10 @@ export function createAuthRouter({ repos, tokens, hasher, loginGuard, botGuard, 
     res.json({ ok: true });
   });
 
-  router.get('/me', (req, res) => res.json({ authenticated: true, professional: req.professional }));
+  router.get('/me', (req, res) => {
+    const { id, name, email, role } = req.professional;
+    res.json({ authenticated: true, professional: { id, name, email, role } });
+  });
 
   return router;
 }

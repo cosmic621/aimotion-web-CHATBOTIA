@@ -37,6 +37,8 @@ const affected = async (sql, params, ctx) => (await as(ctx, () => app.query(sql,
 const A = { role: 'patient', userId: 'rlstest_ua' };
 const B = { role: 'patient', userId: 'rlstest_ub' };
 const PRO = { role: 'professional', userId: 'rlstest_pro' };
+const FN = { role: 'staff', userId: 'rlstest_fn' };
+const ADMIN = { role: 'admin', userId: 'rlstest_pro' };
 const ANON = (s) => ({ role: 'anon', sessionId: s });
 const NONE = {};
 
@@ -44,6 +46,7 @@ try {
   // ---- datos de prueba (con el dueno, que omite RLS)
   await admin.query("INSERT INTO professionals (id, name, email, password_hash, role) VALUES ('rlstest_pro','Pro','rlstest_pro@x.test','h','PSICOLOGO')");
   await admin.query("INSERT INTO users (id, name, email, password_hash) VALUES ('rlstest_ua','A','rlstest_a@x.test','h'), ('rlstest_ub','B','rlstest_b@x.test','h')");
+  await admin.query("INSERT INTO users (id, name, email, password_hash, role) VALUES ('rlstest_fn','F','rlstest_fn@x.test','h','FUNCIONARIO'), ('rlstest_fn2','F2','rlstest_fn2@x.test','h','FUNCIONARIO')");
   await admin.query(`INSERT INTO chat_messages (id, session_id, user_id, role, content) VALUES
     ('rlstest_ma','rlstest_sa','rlstest_ua','user','a'), ('rlstest_mb','rlstest_sb','rlstest_ub','user','b'), ('rlstest_mx','rlstest_sx',NULL,'user','x')`);
   await admin.query("INSERT INTO alerts (id, session_id, user_id, category, severity, excerpt) VALUES ('rlstest_al','rlstest_sa','rlstest_ua','autolesion','alto','e')");
@@ -69,12 +72,34 @@ try {
   console.log('\nusers / alerts / screenings');
   check('anónimo no puede leer usuarios', (await ids("SELECT id FROM users WHERE id LIKE 'rlstest_%'", [], ANON('s'))).length === 0);
   check('paciente A ve solo su fila de usuario', JSON.stringify(await ids("SELECT id FROM users WHERE id LIKE 'rlstest_%'", [], A)) === '["rlstest_ua"]');
-  check('profesional ve ambos usuarios', (await ids("SELECT id FROM users WHERE id LIKE 'rlstest_%'", [], PRO)).length === 2);
+  check('profesional ve todos los usuarios', (await ids("SELECT id FROM users WHERE id LIKE 'rlstest_%'", [], PRO)).length === 4);
   check('paciente no puede leer alertas', (await ids("SELECT id FROM alerts WHERE id LIKE 'rlstest_%'", [], A)).length === 0);
   check('profesional sí lee alertas', (await ids("SELECT id FROM alerts WHERE id LIKE 'rlstest_%'", [], PRO)).length === 1);
   check('paciente no puede cambiar su correo (permiso por columna)', await denied("UPDATE users SET email = 'otro@x.test' WHERE id = 'rlstest_ua'", [], A));
   check('paciente no puede editar el contacto de otro usuario (0 filas)', (await affected("UPDATE users SET emergency_contact_name = 'x' WHERE id = 'rlstest_ub'", [], A)) === 0);
   check('nadie puede cambiar la severidad de una alerta', await denied("UPDATE alerts SET severity = 'moderado' WHERE id = 'rlstest_al'", [], PRO));
+
+  console.log('\nfuncionario (staff) y administrador (admin)');
+  check('funcionario ve a los pacientes y a sí mismo, NO a otro funcionario', JSON.stringify(await ids("SELECT id FROM users WHERE id LIKE 'rlstest_%'", [], FN)) === '["rlstest_fn","rlstest_ua","rlstest_ub"]');
+  check('funcionario lee el chat de los pacientes con cuenta (no el anónimo)', (await ids(q, [], FN)).length === 2);
+  check('funcionario NO lee alertas', (await ids("SELECT id FROM alerts WHERE id LIKE 'rlstest_%'", [], FN)).length === 0);
+  check('funcionario lee los planes de los pacientes', (await ids("SELECT id FROM treatment_plans WHERE id LIKE 'rlstest_%'", [], FN)).length === 1);
+  check('funcionario no puede crear planes', await denied("INSERT INTO treatment_plans (id, user_id, professional_id, condition, title, weeks) VALUES ('rlstest_p4','rlstest_ua','rlstest_pro','estres','t','[]')", [], FN));
+  check('funcionario registra una atención propia', !(await denied("INSERT INTO staff_attentions (id, staff_id, patient_id) VALUES ('rlstest_at1','rlstest_fn','rlstest_ua')", [], FN)));
+  check('funcionario NO puede registrar una atención a nombre de otro', await denied("INSERT INTO staff_attentions (id, staff_id, patient_id) VALUES ('rlstest_at2','rlstest_fn2','rlstest_ua')", [], FN));
+  check('un paciente no puede ascenderse a funcionario', (await as(A, async () => {
+    await app.query("UPDATE users SET role = 'FUNCIONARIO' WHERE id = 'rlstest_ua'");
+    return (await app.query("SELECT role FROM users WHERE id = 'rlstest_ua'")).rows[0].role;
+  })) === 'USUARIO');
+  check('un paciente no puede reactivar ni cambiar su propia contraseña', (await as(A, async () => {
+    await app.query("UPDATE users SET password_hash = 'otra', status = 'activo' WHERE id = 'rlstest_ua'");
+    return (await app.query("SELECT password_hash FROM users WHERE id = 'rlstest_ua'")).rows[0].password_hash;
+  })) === 'h');
+  check('el admin sí suspende y cambia contraseñas de cuentas', (await affected("UPDATE users SET status = 'suspendido', password_hash = 'nueva' WHERE id = 'rlstest_ua'", [], ADMIN)) === 1);
+  check('el profesional NO puede suspender cuentas (0 filas)', (await affected("UPDATE users SET status = 'suspendido' WHERE id = 'rlstest_ua'", [], PRO)) === 0);
+  check('el admin crea cuentas; el profesional no', !(await denied("INSERT INTO users (id, name, email, password_hash, role) VALUES ('rlstest_n9','N','rlstest_n9@x.test','h','FUNCIONARIO')", [], ADMIN))
+    && await denied("INSERT INTO users (id, name, email, password_hash, role) VALUES ('rlstest_n8','N','rlstest_n8@x.test','h','FUNCIONARIO')", [], PRO));
+  check('el contexto admin (rutas /api/admin) NO lee contenido clínico', (await ids(q, [], ADMIN)).length === 0);
 
   console.log('\ntreatment_plans');
   check('paciente B no ve el plan de A', (await ids("SELECT id FROM treatment_plans WHERE id LIKE 'rlstest_%'", [], B)).length === 0);
@@ -83,14 +108,21 @@ try {
   check('profesional no puede crear planes a nombre de otro profesional', await denied("INSERT INTO treatment_plans (id, user_id, professional_id, condition, title, weeks) VALUES ('rlstest_p3','rlstest_ua','otro','estres','t','[]')", [], PRO));
 
   console.log('\nBorrado y DDL');
-  for (const t of ['chat_messages', 'alerts', 'users', 'screenings', 'treatment_plans', 'professionals']) {
+  for (const t of ['chat_messages', 'alerts', 'screenings', 'treatment_plans']) {
     check(`nadie puede borrar en ${t}`, await denied(`DELETE FROM ${t} WHERE id LIKE 'rlstest_%'`, [], { role: 'system' }));
+  }
+  // Cuentas (v9): solo el ADMIN las borra. Para los demas roles la politica deja 0 filas afectadas.
+  for (const t of ['users', 'professionals']) {
+      check(`solo el admin puede borrar en ${t} (system, paciente y profesional: 0 filas)`,
+      (await affected(`DELETE FROM ${t} WHERE id = 'rlstest_zz'`, [], { role: 'system' })) === 0
+      && (await affected(`DELETE FROM ${t} WHERE id = 'rlstest_zz'`, [], A)) === 0
+      && (await affected(`DELETE FROM ${t} WHERE id = 'rlstest_zz'`, [], PRO)) === 0);
   }
   check('el rol de la aplicación no puede borrar tablas', await denied('DROP TABLE audit_log', [], { role: 'system' }));
 } finally {
   for (const sql of [
     "DELETE FROM treatment_plans WHERE id LIKE 'rlstest_%'", "DELETE FROM alerts WHERE id LIKE 'rlstest_%'",
-    "DELETE FROM chat_messages WHERE id LIKE 'rlstest_%'", "DELETE FROM users WHERE id LIKE 'rlstest_%'", "DELETE FROM professionals WHERE id LIKE 'rlstest_%'",
+    "DELETE FROM staff_attentions WHERE id LIKE 'rlstest_%'", "DELETE FROM chat_messages WHERE id LIKE 'rlstest_%'", "DELETE FROM users WHERE id LIKE 'rlstest_%'", "DELETE FROM professionals WHERE id LIKE 'rlstest_%'",
   ]) await admin.query(sql).catch(() => {});
   await admin.end();
   await app.end();

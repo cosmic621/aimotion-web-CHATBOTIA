@@ -9,18 +9,32 @@
 
 const aad = (column, id) => `${column}:${id}`;
 const DEFAULT_PAGE = { limit: 50, offset: 0 };
-const page = (p) => ({ ...DEFAULT_PAGE, ...(p || {}) });
+const page = (p) => ({ limit: p?.limit ?? DEFAULT_PAGE.limit, offset: p?.offset ?? DEFAULT_PAGE.offset });
 
 export function publicUser(user) {
-  return { id: user.id, name: user.name, email: user.email, emergencyContact: user.emergencyContact };
+  return { id: user.id, name: user.name, email: user.email, role: user.role || 'USUARIO', emergencyContact: user.emergencyContact };
 }
+
+/** Escapa % _ \ para usar texto del usuario dentro de un ILIKE sin que actue como comodin. */
+const likePattern = (text) => `%${String(text).replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+// Nombres de tabla FIJOS (nunca se arman con texto del usuario).
+const ACCOUNT_TABLES = { usuario: 'users', profesional: 'professionals' };
+const tableFor = (kind) => {
+  const t = ACCOUNT_TABLES[kind];
+  if (!t) throw new Error('Tipo de cuenta desconocido');
+  return t;
+};
 
 export function createRepos({ db, cipher }) {
   const q = (ctx, sql, params) => db.query(ctx, sql, params);
 
   // ------------------------------------------------------------ profesionales
   const professionalFromRow = (r) =>
-    r && { id: r.id, name: r.name, email: r.email, passwordHash: r.password_hash, role: r.role, createdAt: r.created_at };
+    r && {
+      id: r.id, name: r.name, email: r.email, passwordHash: r.password_hash, role: r.role, createdAt: r.created_at,
+      status: r.status || 'activo', sessionsValidAfter: r.sessions_valid_after || null,
+    };
 
   const professionals = {
     async findByEmail(ctx, email) {
@@ -51,6 +65,9 @@ export function createRepos({ db, cipher }) {
       email: r.email,
       passwordHash: r.password_hash,
       createdAt: r.created_at,
+      role: r.role || 'USUARIO',
+      status: r.status || 'activo',
+      sessionsValidAfter: r.sessions_valid_after || null,
       emergencyContact: hasContact
         ? {
             name: cipher.decrypt(r.emergency_contact_name, aad('users.emergency_contact_name', r.id)),
@@ -76,14 +93,15 @@ export function createRepos({ db, cipher }) {
       const { rows } = await q(ctx, 'SELECT * FROM users WHERE id = $1', [id]);
       return userFromRow(rows[0]);
     },
-    async create(ctx, { id, name, email, passwordHash, contact }) {
-      const [n, p, r] = encContact(id, contact);
+    /** contact es opcional: las cuentas que crea el admin no tienen contacto de emergencia (ni consentimiento). */
+    async create(ctx, { id, name, email, passwordHash, contact, role }) {
+      const [n, p, r] = contact ? encContact(id, contact) : [null, null, null];
       const { rows } = await q(
         ctx,
         `INSERT INTO users (id, name, email, password_hash, emergency_contact_name, emergency_contact_phone,
-           emergency_contact_relation, contact_consent_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING *`,
-        [id, name, String(email).toLowerCase(), passwordHash, n, p, r]
+           emergency_contact_relation, contact_consent_at, role)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $6::text IS NULL THEN NULL ELSE now() END, $8) RETURNING *`,
+        [id, name, String(email).toLowerCase(), passwordHash, n, p, r, role || 'USUARIO']
       );
       return userFromRow(rows[0]);
     },
@@ -290,16 +308,142 @@ export function createRepos({ db, cipher }) {
     },
   };
 
-  // ------------------------------------------------------------ auditoria
-  const audit = {
-    async log(ctx, { id, professionalId, action, resourceType, resourceId }) {
+  // ------------------------------------------------------------ funcionarios (historial de pacientes y atenciones)
+  // Todas estas consultas corren con staffCtx: RLS limita al funcionario a pacientes con role USUARIO
+  // y a SUS propias atenciones. Aun asi cada consulta lo repite en el SQL (defensa en profundidad).
+  const staff = {
+    async listPatients(ctx, { q: search, limit, offset } = {}) {
+      const p = page({ limit, offset });
+      const { rows } = await q(
+        ctx,
+        `SELECT u.id, u.name, u.email, u.status, u.created_at,
+                (SELECT COUNT(*)::int FROM chat_messages c WHERE c.user_id = u.id) AS message_count,
+                (SELECT MAX(c.created_at) FROM chat_messages c WHERE c.user_id = u.id) AS last_activity,
+                (SELECT COUNT(*)::int FROM screenings s WHERE s.user_id = u.id) AS screening_count
+           FROM users u
+          WHERE u.role = 'USUARIO' AND ($1::text IS NULL OR u.name ILIKE $1 OR u.email ILIKE $1)
+          ORDER BY last_activity DESC NULLS LAST, u.created_at DESC
+          LIMIT $2 OFFSET $3`,
+        [search ? likePattern(search) : null, p.limit, p.offset]
+      );
+      return rows.map((r) => ({
+        id: r.id, name: r.name, email: r.email, status: r.status, createdAt: r.created_at,
+        messageCount: r.message_count, screeningCount: r.screening_count, lastActivity: r.last_activity,
+      }));
+    },
+    async findPatient(ctx, id) {
+      const { rows } = await q(ctx, "SELECT id, name, email, status, created_at FROM users WHERE id = $1 AND role = 'USUARIO'", [id]);
+      const r = rows[0];
+      return r ? { id: r.id, name: r.name, email: r.email, status: r.status, createdAt: r.created_at } : null;
+    },
+    async screeningsByUser(ctx, userId, p) {
+      const { limit, offset } = page(p);
+      const { rows } = await q(ctx, 'SELECT * FROM screenings WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3', [userId, limit, offset]);
+      return rows.map(screeningFromRow);
+    },
+    async recordAttention(ctx, { id, staffId, patientId, note }) {
       await q(
         ctx,
-        'INSERT INTO audit_log (id, professional_id, action, resource_type, resource_id) VALUES ($1, $2, $3, $4, $5)',
-        [id, professionalId || null, action, resourceType, resourceId || null]
+        'INSERT INTO staff_attentions (id, staff_id, patient_id, note) VALUES ($1, $2, $3, $4)',
+        [id, staffId, patientId, note ? cipher.encrypt(note, aad('staff_attentions.note', id)) : null]
+      );
+      return { id, staffId, patientId, note: note || null, createdAt: new Date().toISOString() };
+    },
+    /** Atenciones que ESTE funcionario registro sobre un paciente (con su nota). */
+    async attentionsFor(ctx, staffId, patientId, p) {
+      const { limit, offset } = page(p);
+      const { rows } = await q(
+        ctx,
+        'SELECT * FROM staff_attentions WHERE staff_id = $1 AND patient_id = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4',
+        [staffId, patientId, limit, offset]
+      );
+      return rows.map((r) => ({ id: r.id, note: cipher.decrypt(r.note, aad('staff_attentions.note', r.id)), createdAt: r.created_at }));
+    },
+    /** Pacientes que este funcionario ha atendido, con cuantas veces y la ultima atencion. */
+    async listAttended(ctx, staffId, p) {
+      const { limit, offset } = page(p);
+      const { rows } = await q(
+        ctx,
+        `SELECT u.id, u.name, u.email, COUNT(a.id)::int AS attention_count, MAX(a.created_at) AS last_attended
+           FROM staff_attentions a JOIN users u ON u.id = a.patient_id
+          WHERE a.staff_id = $1
+          GROUP BY u.id, u.name, u.email
+          ORDER BY last_attended DESC LIMIT $2 OFFSET $3`,
+        [staffId, limit, offset]
+      );
+      return rows.map((r) => ({ id: r.id, name: r.name, email: r.email, attentionCount: r.attention_count, lastAttended: r.last_attended }));
+    },
+  };
+
+  // ------------------------------------------------------------ cuentas (control maestro del ADMIN)
+  const accountFromRow = (kind) => (r) =>
+    r && { id: r.id, kind, name: r.name, email: r.email, role: r.role, status: r.status || 'activo', createdAt: r.created_at };
+
+  const accounts = {
+    async list(ctx, { kind, q: search, limit, offset } = {}) {
+      const p = page({ limit, offset });
+      const { rows } = await q(
+        ctx,
+        `SELECT * FROM (
+           SELECT id, name, email, role, status, created_at, 'usuario' AS kind FROM users
+           UNION ALL
+           SELECT id, name, email, role, status, created_at, 'profesional' AS kind FROM professionals
+         ) a
+          WHERE ($1::text IS NULL OR a.kind = $1) AND ($2::text IS NULL OR a.name ILIKE $2 OR a.email ILIKE $2)
+          ORDER BY a.created_at DESC LIMIT $3 OFFSET $4`,
+        [kind || null, search ? likePattern(search) : null, p.limit, p.offset]
+      );
+      return rows.map((r) => accountFromRow(r.kind)(r));
+    },
+    async get(ctx, kind, id) {
+      const { rows } = await q(ctx, `SELECT id, name, email, role, status, created_at FROM ${tableFor(kind)} WHERE id = $1`, [id]);
+      return accountFromRow(kind)(rows[0]) || null;
+    },
+    async setStatus(ctx, kind, id, status) {
+      // Suspender tambien invalida las sesiones abiertas (sessions_valid_after).
+      const { rows } = await q(
+        ctx,
+        `UPDATE ${tableFor(kind)}
+            SET status = $2, sessions_valid_after = CASE WHEN $2 = 'suspendido' THEN now() ELSE sessions_valid_after END
+          WHERE id = $1 RETURNING id, name, email, role, status, created_at`,
+        [id, status]
+      );
+      return accountFromRow(kind)(rows[0]) || null;
+    },
+    async setPassword(ctx, kind, id, passwordHash) {
+      // Cambiar la contrasena cierra las sesiones abiertas de esa cuenta.
+      const { rows } = await q(
+        ctx,
+        `UPDATE ${tableFor(kind)} SET password_hash = $2, sessions_valid_after = now() WHERE id = $1
+         RETURNING id, name, email, role, status, created_at`,
+        [id, passwordHash]
+      );
+      return accountFromRow(kind)(rows[0]) || null;
+    },
+    async setUserRole(ctx, id, role) {
+      const { rows } = await q(ctx, 'UPDATE users SET role = $2 WHERE id = $1 RETURNING id, name, email, role, status, created_at', [id, role]);
+      return accountFromRow('usuario')(rows[0]) || null;
+    },
+    async remove(ctx, kind, id) {
+      const { rows } = await q(ctx, `DELETE FROM ${tableFor(kind)} WHERE id = $1 RETURNING id`, [id]);
+      return rows.length > 0;
+    },
+    async countActiveAdmins(ctx) {
+      const { rows } = await q(ctx, "SELECT COUNT(*)::int AS n FROM professionals WHERE role = 'ADMIN' AND status = 'activo'");
+      return rows[0]?.n ?? 0;
+    },
+  };
+
+  // ------------------------------------------------------------ auditoria
+  const audit = {
+    async log(ctx, { id, professionalId, actorUserId, action, resourceType, resourceId }) {
+      await q(
+        ctx,
+        'INSERT INTO audit_log (id, professional_id, action, resource_type, resource_id, actor_user_id) VALUES ($1, $2, $3, $4, $5, $6)',
+        [id, professionalId || null, action, resourceType, resourceId || null, actorUserId || null]
       );
     },
   };
 
-  return { professionals, users, alerts, screenings, chat, plans, audit };
+  return { professionals, users, alerts, screenings, chat, plans, staff, accounts, audit };
 }

@@ -42,7 +42,7 @@ export function createPatientAuthRouter({ repos, tokens, hasher, loginGuard, bot
     if (await repos.users.findByEmail(sys, b.email)) return res.status(409).json({ error: 'Ya existe una cuenta con ese correo' });
 
     const passwordHash = await hasher.hash(b.password);
-    const user = await repos.users.create(sys, { id: nanoid(12), name: b.name, email: b.email, passwordHash, contact });
+    const user = await repos.users.create(sys, { id: nanoid(12), name: b.name, email: b.email, passwordHash, contact, role: 'USUARIO' }); // el perfil nunca viene del cuerpo
     const token = tokens.signPatient(user);
     sessions.set(res, 'patient', token);
     const cookies = { ...(req.cookies || {}), [sessions.names.patient]: token };
@@ -70,6 +70,9 @@ export function createPatientAuthRouter({ repos, tokens, hasher, loginGuard, bot
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
     loginGuard.success(req.ip, key);
+    if ((user.status || 'activo') !== 'activo') {
+      return res.status(403).json({ error: 'Tu cuenta está suspendida. Contacta al administrador.' });
+    }
     const token = tokens.signPatient(user);
     sessions.set(res, 'patient', token);
     const cookies = { ...(req.cookies || {}), [sessions.names.patient]: token };

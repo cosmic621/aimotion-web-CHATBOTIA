@@ -125,3 +125,93 @@ CREATE INDEX IF NOT EXISTS idx_alerts_user ON alerts(user_id);
 -- ---------------------------------------------------------------------
 ALTER TABLE screenings ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id);
 CREATE INDEX IF NOT EXISTS idx_screenings_user ON screenings(user_id);
+
+-- ---------------------------------------------------------------------
+-- Perfiles y control de cuentas (v9).
+--   users.role          USUARIO (persona que usa el chat) | FUNCIONARIO (igual que el usuario,
+--                       y ademas consulta el historial de los pacientes que atiende)
+--   professionals.role  PSICOLOGO | ADMIN (control maestro de cuentas)
+--   status              activo | suspendido (una cuenta suspendida no puede iniciar sesion)
+--   sessions_valid_after  las sesiones emitidas ANTES de esta fecha dejan de valer
+--                       (se actualiza al suspender o cambiar la contrasena de una cuenta)
+-- ---------------------------------------------------------------------
+ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'USUARIO';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'activo';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_valid_after TIMESTAMPTZ;
+ALTER TABLE professionals ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'activo';
+ALTER TABLE professionals ADD COLUMN IF NOT EXISTS sessions_valid_after TIMESTAMPTZ;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_role_check') THEN
+    ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('USUARIO', 'FUNCIONARIO'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_status_check') THEN
+    ALTER TABLE users ADD CONSTRAINT users_status_check CHECK (status IN ('activo', 'suspendido'));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'professionals_status_check') THEN
+    ALTER TABLE professionals ADD CONSTRAINT professionals_status_check CHECK (status IN ('activo', 'suspendido'));
+  END IF;
+END $$;
+
+-- Atenciones: cada vez que un funcionario registra que atendio a un paciente.
+-- De aqui sale la lista de "pacientes que ha atendido". La nota se guarda cifrada.
+CREATE TABLE IF NOT EXISTS staff_attentions (
+  id         TEXT PRIMARY KEY,
+  staff_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  patient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  note       TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_staff_attentions_staff ON staff_attentions(staff_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_staff_attentions_patient ON staff_attentions(patient_id);
+
+-- La bitacora tambien registra a los funcionarios (que son cuentas de la tabla users).
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS actor_user_id TEXT;
+
+-- Eliminar una cuenta: que pasa con lo que depende de ella.
+--   CASCADE   = se borra con la cuenta (chat, tamizajes, planes y atenciones de ese usuario)
+--   SET NULL  = se conserva sin vinculo (las alertas de riesgo quedan como registro de seguridad)
+-- Las acciones de las claves foraneas las ejecuta Postgres con los permisos del dueno de la tabla.
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+    ('chat_messages', 'user_id', 'users', 'c'),
+    ('screenings', 'user_id', 'users', 'c'),
+    ('treatment_plans', 'user_id', 'users', 'c'),
+    ('alerts', 'user_id', 'users', 'n'),
+    ('alerts', 'reviewed_by_id', 'professionals', 'n'),
+    ('audit_log', 'professional_id', 'professionals', 'n')
+  ) AS t(tbl, col, ref, act)
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint c
+      WHERE c.contype = 'f'
+        AND c.conrelid = ('public.' || r.tbl)::regclass
+        AND c.confrelid = ('public.' || r.ref)::regclass
+        AND c.confdeltype = r.act::"char"
+        AND c.conkey = ARRAY[(SELECT a.attnum FROM pg_attribute a WHERE a.attrelid = ('public.' || r.tbl)::regclass AND a.attname = r.col)]
+    ) THEN
+      EXECUTE format('ALTER TABLE %I DROP CONSTRAINT IF EXISTS %I', r.tbl, r.tbl || '_' || r.col || '_fkey');
+      EXECUTE format(
+        'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES %I(id) ON DELETE %s',
+        r.tbl, r.tbl || '_' || r.col || '_fkey', r.col, r.ref,
+        CASE r.act WHEN 'c' THEN 'CASCADE' ELSE 'SET NULL' END
+      );
+    END IF;
+  END LOOP;
+END $$;
+
+-- Al eliminar una cuenta, sus alertas de riesgo conservan el registro pero pierden el nombre.
+CREATE OR REPLACE FUNCTION anonymize_alerts_of_deleted_user() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS
+$$
+BEGIN
+  UPDATE alerts SET user_name = NULL WHERE user_id = OLD.id;
+  RETURN OLD;
+END
+$$;
+DROP TRIGGER IF EXISTS trg_users_anonymize_alerts ON users;
+CREATE TRIGGER trg_users_anonymize_alerts BEFORE DELETE ON users
+  FOR EACH ROW EXECUTE FUNCTION anonymize_alerts_of_deleted_user();

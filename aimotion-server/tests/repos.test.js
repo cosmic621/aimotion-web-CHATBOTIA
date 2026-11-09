@@ -157,3 +157,85 @@ describe('repos: sin inyección SQL', () => {
     assert.deepEqual(last().params, ['ana@x.com']);
   });
 });
+
+describe('repos: funcionario y cuentas (v9)', () => {
+  it('crear un usuario sin contacto (lo hace el admin) no guarda contacto ni consentimiento, y fija el perfil', async () => {
+    db.next.push([{ id: 'u9', name: 'Fun', email: 'f@x.com', password_hash: 'h', created_at: 'x', role: 'FUNCIONARIO', status: 'activo' }]);
+    const u = await repos.users.create(patientCtx({ id: 'adm' }), { id: 'u9', name: 'Fun', email: 'F@X.com', passwordHash: 'h', contact: null, role: 'FUNCIONARIO' });
+    assert.deepEqual(last().params.slice(4, 7), [null, null, null]);
+    assert.equal(last().params[7], 'FUNCIONARIO');
+    assert.match(last().sql, /CASE WHEN \$6::text IS NULL THEN NULL ELSE now\(\) END/);
+    assert.equal(u.role, 'FUNCIONARIO');
+    assert.equal(u.emergencyContact, null);
+  });
+  it('sin indicar perfil, la cuenta es USUARIO', async () => {
+    db.next.push([{ id: 'u1', name: 'A', email: 'a@x.com', password_hash: 'h', created_at: 'x' }]);
+    await repos.users.create(systemCtx(), { id: 'u1', name: 'A', email: 'a@x.com', passwordHash: 'h', contact: { name: 'R', phone: '+573001234567', relation: 'mamá' } });
+    assert.equal(last().params[7], 'USUARIO');
+  });
+  it('publicUser incluye el perfil pero nunca el hash', () => {
+    const u = publicUser({ id: '1', name: 'A', email: 'a@x.com', role: 'FUNCIONARIO', passwordHash: 'SECRETO', emergencyContact: null });
+    assert.equal(u.role, 'FUNCIONARIO');
+    assert.ok(!JSON.stringify(u).includes('SECRETO'));
+  });
+  it('listar pacientes: solo role USUARIO, búsqueda parametrizada y con comodines escapados', async () => {
+    await repos.staff.listPatients({ role: 'staff', userId: 'f1' }, { q: "50%_x'; DROP TABLE users;--", limit: 10, offset: 0 });
+    assert.match(last().sql, /u\.role = 'USUARIO'/);
+    assert.ok(!last().sql.includes('DROP TABLE'));
+    assert.equal(last().params[0], "%50\\%\\_x'; DROP TABLE users;--%");
+    assert.deepEqual(last().params.slice(1), [10, 0]);
+  });
+  it('sin búsqueda ni paginación usa valores por defecto', async () => {
+    await repos.staff.listPatients({ role: 'staff', userId: 'f1' }, {});
+    assert.deepEqual(last().params, [null, 50, 0]);
+  });
+  it('la nota de una atención se guarda cifrada y se lee descifrada', async () => {
+    await repos.staff.recordAttention({ role: 'staff', userId: 'f1' }, { id: 'a1', staffId: 'f1', patientId: 'p1', note: 'Paciente refiere insomnio' });
+    const stored = last().params[3];
+    assert.ok(cipher.isEncrypted(stored));
+    assert.ok(!JSON.stringify(last().params).includes('insomnio'));
+    db.next.push([{ id: 'a1', note: stored, created_at: 'x' }]);
+    const [att] = await repos.staff.attentionsFor({ role: 'staff', userId: 'f1' }, 'f1', 'p1');
+    assert.equal(att.note, 'Paciente refiere insomnio');
+  });
+  it('una atención sin nota guarda NULL', async () => {
+    await repos.staff.recordAttention({ role: 'staff', userId: 'f1' }, { id: 'a2', staffId: 'f1', patientId: 'p1' });
+    assert.equal(last().params[3], null);
+  });
+  it('los pacientes atendidos se filtran por el funcionario que consulta', async () => {
+    await repos.staff.listAttended({ role: 'staff', userId: 'f1' }, 'f1', {});
+    assert.equal(last().params[0], 'f1');
+    assert.match(last().sql, /a\.staff_id = \$1/);
+  });
+  it('el listado de cuentas nunca trae el hash de la contraseña', async () => {
+    db.next.push([{ id: 'u1', kind: 'usuario', name: 'A', email: 'a@x.com', role: 'USUARIO', status: 'activo', created_at: 'x', password_hash: 'NO' }]);
+    const [a] = await repos.accounts.list({ role: 'admin' }, {});
+    assert.ok(!last().sql.includes('password_hash'));
+    assert.deepEqual(Object.keys(a).sort(), ['createdAt', 'email', 'id', 'kind', 'name', 'role', 'status']);
+  });
+  it('el tipo de cuenta decide la tabla desde una lista fija (no concatena texto del usuario)', async () => {
+    await repos.accounts.get({ role: 'admin' }, 'profesional', 'p1');
+    assert.match(last().sql, /FROM professionals WHERE id = \$1/);
+    await repos.accounts.get({ role: 'admin' }, 'usuario', 'u1');
+    assert.match(last().sql, /FROM users WHERE id = \$1/);
+    await assert.rejects(() => repos.accounts.get({ role: 'admin' }, 'users; DROP TABLE users', 'x'), /Tipo de cuenta desconocido/);
+    await assert.rejects(() => repos.accounts.remove({ role: 'admin' }, 'x', 'x'), /Tipo de cuenta desconocido/);
+  });
+  it('suspender y cambiar la contraseña invalidan las sesiones abiertas', async () => {
+    await repos.accounts.setStatus({ role: 'admin' }, 'usuario', 'u1', 'suspendido');
+    assert.match(last().sql, /sessions_valid_after = CASE WHEN \$2 = 'suspendido' THEN now\(\)/);
+    await repos.accounts.setPassword({ role: 'admin' }, 'usuario', 'u1', 'nuevo-hash');
+    assert.match(last().sql, /password_hash = \$2, sessions_valid_after = now\(\)/);
+    assert.deepEqual(last().params, ['u1', 'nuevo-hash']);
+  });
+  it('eliminar devuelve true solo si había una fila', async () => {
+    db.next.push([{ id: 'u1' }]);
+    assert.equal(await repos.accounts.remove({ role: 'admin' }, 'usuario', 'u1'), true);
+    db.next.push([]);
+    assert.equal(await repos.accounts.remove({ role: 'admin' }, 'usuario', 'u1'), false);
+  });
+  it('la bitácora registra también al funcionario que actúa', async () => {
+    await repos.audit.log({ role: 'staff', userId: 'f1' }, { id: 'x1', actorUserId: 'f1', action: 'staff_view_patient_history', resourceType: 'user', resourceId: 'p1' });
+    assert.deepEqual(last().params, ['x1', null, 'staff_view_patient_history', 'user', 'p1', 'f1']);
+  });
+});

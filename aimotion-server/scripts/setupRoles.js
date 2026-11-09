@@ -34,7 +34,7 @@ try {
   }
   await client.query(`GRANT CONNECT ON DATABASE ${dbName} TO aimotion_app`);
   await client.query(fs.readFileSync(path.join(__dirname, '../src/db/roles.sql'), 'utf-8'));
-  console.log('Rol aimotion_app listo (sin DDL, sin DELETE, sin superusuario).');
+  console.log('Rol aimotion_app listo (sin DDL, sin superusuario; DELETE solo sobre cuentas y solo para el rol admin vía RLS).');
   if (password) {
     const appUrl = new URL(adminUrl);
     appUrl.username = 'aimotion_app';

@@ -6,6 +6,8 @@ import { connectSocket, disconnectSocket } from '../../lib/socket';
 import { RISK_CATEGORY_LABELS } from '../../lib/riskEngine';
 import Login from './Login';
 import UsersPanel from './UsersPanel';
+import AccountsAdmin from './AccountsAdmin';
+import { ROLE_LABELS } from '../../lib/roles';
 
 const SEVERITY_STYLES = {
   critico: 'bg-red-100 text-red-700 border-red-300',
@@ -92,9 +94,18 @@ export default function Dashboard() {
     setProfessional(null);
   };
 
+  // La cuenta fue suspendida/eliminada, o su contrasena cambio: se cierra la sesion en pantalla.
+  const handleSessionLost = () => {
+    disconnectSocket();
+    clearSession();
+    setProfessional(null);
+  };
+
   if (!professional) {
     return <Login onSuccess={setProfessional} />;
   }
+
+  const isAdmin = professional.role === 'ADMIN';
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -102,7 +113,7 @@ export default function Dashboard() {
         <div>
           <h2 className="text-3xl font-bold text-gray-900">Panel Profesional</h2>
           <p className="text-gray-500 text-sm flex items-center gap-2">
-            {professional.name} · {professional.role === 'ADMIN' ? 'Administrador' : 'Psicólogo/a'}
+            {professional.name} · {ROLE_LABELS[professional.role] || professional.role}
             <span className={`flex items-center gap-1 text-xs font-semibold ${liveConnected ? 'text-brand-600' : 'text-gray-400'}`}>
               <Radio className="w-3 h-3" /> {liveConnected ? 'En vivo' : 'Sin conexión en vivo'}
             </span>
@@ -120,7 +131,7 @@ export default function Dashboard() {
 
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
 
-      <div className="flex gap-3 mb-6">
+      <div className="flex gap-3 mb-6 flex-wrap">
         <button
           onClick={() => setTab('alertas')}
           className={`px-5 py-2 rounded-full text-sm font-semibold ${tab === 'alertas' ? 'bg-brand-600 text-white' : 'bg-white text-gray-600'}`}
@@ -139,6 +150,14 @@ export default function Dashboard() {
         >
           Usuarios y planes
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => setTab('cuentas')}
+            className={`px-5 py-2 rounded-full text-sm font-semibold ${tab === 'cuentas' ? 'bg-gold-400 text-brand-900' : 'bg-white text-gray-600'}`}
+          >
+            Control de cuentas
+          </button>
+        )}
       </div>
 
       {loading && <p className="text-gray-400 text-center py-10">Cargando...</p>}
@@ -222,6 +241,8 @@ export default function Dashboard() {
       )}
 
       {tab === 'usuarios' && <UsersPanel />}
+
+      {isAdmin && tab === 'cuentas' && <AccountsAdmin currentId={professional.id} onSessionLost={handleSessionLost} />}
     </div>
   );
 }

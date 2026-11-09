@@ -26,17 +26,21 @@ function makeRepos() {
   const alerts = [];
   const plans = [];
   const messages = [];
-  const store = { users, pros, alerts, plans, messages, audit: [] };
+  const attentions = [];
+  const store = { users, pros, alerts, plans, messages, attentions, audit: [] };
+  const tableOf = (kind) => (kind === 'usuario' ? users : pros);
+  const accountOf = (kind, r) => ({ id: r.id, kind, name: r.name, email: r.email, role: r.role || 'USUARIO', status: r.status || 'activo', createdAt: r.createdAt });
   const repos = {
     professionals: {
       findByEmail: async (_c, e) => [...pros.values()].find((p) => p.email === e) || null,
       findById: async (_c, id) => pros.get(id) || null,
+      create: async (_c, p) => { const r = { ...p, status: 'activo', createdAt: new Date() }; pros.set(p.id, r); return r; },
     },
     users: {
       findByEmail: async (_c, e) => [...users.values()].find((u) => u.email === e) || null,
       findById: async (_c, id) => users.get(id) || null,
-      create: async (_c, { id, name, email, passwordHash, contact }) => {
-        const u = { id, name, email, passwordHash, createdAt: new Date(), emergencyContact: { ...contact, consentAt: new Date() } };
+      create: async (_c, { id, name, email, passwordHash, contact, role }) => {
+        const u = { id, name, email, passwordHash, role: role || 'USUARIO', status: 'activo', createdAt: new Date(), emergencyContact: contact ? { ...contact, consentAt: new Date() } : null };
         users.set(id, u);
         return u;
       },
@@ -80,6 +84,43 @@ function makeRepos() {
       listByUser: async (_c, u) => plans.filter((p) => p.userId === u),
       findById: async (_c, id) => plans.find((p) => p.id === id) || null,
       updateWeeks: async (_c, id, weeks) => Object.assign(plans.find((p) => p.id === id), { weeks }),
+    },
+    staff: {
+      listPatients: async () => [...users.values()].filter((u) => (u.role || 'USUARIO') === 'USUARIO').map((u) => ({ id: u.id, name: u.name, email: u.email, status: u.status || 'activo', messageCount: 0, screeningCount: 0, lastActivity: null })),
+      findPatient: async (_c, id) => {
+        const u = users.get(id);
+        return u && (u.role || 'USUARIO') === 'USUARIO' ? { id: u.id, name: u.name, email: u.email, status: u.status || 'activo' } : null;
+      },
+      screeningsByUser: async () => [],
+      recordAttention: async (_c, a) => { attentions.push(a); return { ...a, createdAt: new Date().toISOString() }; },
+      attentionsFor: async (_c, staffId, patientId) => attentions.filter((a) => a.staffId === staffId && a.patientId === patientId).map((a) => ({ id: a.id, note: a.note, createdAt: 'x' })),
+      listAttended: async (_c, staffId) => {
+        const ids = [...new Set(attentions.filter((a) => a.staffId === staffId).map((a) => a.patientId))];
+        return ids.map((id) => ({ id, name: users.get(id)?.name, email: users.get(id)?.email, attentionCount: attentions.filter((a) => a.staffId === staffId && a.patientId === id).length, lastAttended: 'x' }));
+      },
+    },
+    accounts: {
+      list: async (_c, { kind, q } = {}) => [
+        ...[...users.values()].map((r) => accountOf('usuario', r)),
+        ...[...pros.values()].map((r) => accountOf('profesional', r)),
+      ].filter((a) => (!kind || a.kind === kind) && (!q || `${a.name} ${a.email}`.toLowerCase().includes(String(q).toLowerCase()))),
+      get: async (_c, kind, id) => { const r = tableOf(kind).get(id); return r ? accountOf(kind, r) : null; },
+      setStatus: async (_c, kind, id, status) => {
+        const r = tableOf(kind).get(id);
+        if (!r) return null;
+        r.status = status;
+        if (status === 'suspendido') r.sessionsValidAfter = new Date();
+        return accountOf(kind, r);
+      },
+      setPassword: async (_c, kind, id, hash) => {
+        const r = tableOf(kind).get(id);
+        if (!r) return null;
+        Object.assign(r, { passwordHash: hash, sessionsValidAfter: new Date() });
+        return accountOf(kind, r);
+      },
+      setUserRole: async (_c, id, role) => { const r = users.get(id); if (!r) return null; r.role = role; return accountOf('usuario', r); },
+      remove: async (_c, kind, id) => tableOf(kind).delete(id),
+      countActiveAdmins: async () => [...pros.values()].filter((p) => p.role === 'ADMIN' && (p.status || 'activo') === 'activo').length,
     },
     audit: { log: async (_c, e) => { store.audit.push(e); } },
   };
@@ -317,6 +358,199 @@ describe('API (integración de seguridad)', { skip: !lib && 'dependencias no ins
     assert.deepEqual(anon.json, []);
     const own = await request(base, 'GET', '/api/chat/messages', { cookie });
     assert.equal(own.json.length >= 1, true);
+  });
+
+
+  // ------------------------------------------------------------------
+  // Perfiles nuevos: FUNCIONARIO y ADMIN (control de cuentas)
+  // ------------------------------------------------------------------
+  const seedUser = (id, role = 'USUARIO') => {
+    store.users.set(id, { id, name: `Nombre ${id}`, email: `${id}@x.test`, passwordHash: `h:${PATIENT_PASSWORD}`, role, status: 'activo', createdAt: new Date(), emergencyContact: null });
+  };
+  const loginUser = (id, password = PATIENT_PASSWORD) => request(base, 'POST', '/api/patient-auth/login', { body: { email: `${id}@x.test`, password, ...humanForm() } });
+  const withSession = (login) => (method, path, body) => request(base, method, path, { cookie: cookieOf(login), csrf: login.json.csrfToken, body });
+  const asAdmin = async () => withSession(await loginPro());
+
+  it('funcionario: ve la lista y el historial de los pacientes, y la consulta queda en la bitácora', async () => {
+    seedUser('fun1', 'FUNCIONARIO');
+    seedUser('pac1');
+    store.messages.push({ id: 'mf1', sessionId: 'sess-fun-0001', userId: 'pac1', role: 'user', content: 'hola' });
+    const call = withSession(await loginUser('fun1'));
+
+    const list = await call('GET', '/api/staff/patients');
+    assert.equal(list.status, 200);
+    assert.ok(list.json.some((p) => p.id === 'pac1'));
+    assert.ok(!list.json.some((p) => p.id === 'fun1'), 'el funcionario no aparece como paciente');
+
+    const history = await call('GET', '/api/staff/patients/pac1/history');
+    assert.equal(history.status, 200);
+    assert.equal(history.json.patient.id, 'pac1');
+    assert.equal(history.json.messages.length, 1);
+    assert.equal(history.json.patient.emergencyContact, undefined, 'no se expone el contacto de emergencia');
+    assert.ok(store.audit.some((a) => a.action === 'staff_view_patient_history' && a.actorUserId === 'fun1' && a.resourceId === 'pac1'));
+
+    seedUser('fun2', 'FUNCIONARIO');
+    assert.equal((await call('GET', '/api/staff/patients/fun2/history')).status, 404, 'no se lee el historial de otro funcionario');
+    assert.equal((await call('GET', '/api/staff/patients/no-existe/history')).status, 404);
+  });
+
+  it('funcionario: registra una atención y la ve en "pacientes atendidos" (solo las suyas)', async () => {
+    seedUser('fun3', 'FUNCIONARIO');
+    seedUser('fun4', 'FUNCIONARIO');
+    seedUser('pac2');
+    const mine = withSession(await loginUser('fun3'));
+    const other = withSession(await loginUser('fun4'));
+
+    assert.equal((await mine('POST', '/api/staff/patients/pac2/attentions', { note: 'Primera consulta' })).status, 201);
+    assert.equal((await mine('POST', '/api/staff/patients/pac2/attentions', { staffId: 'fun4' })).status, 400, 'el funcionario sale del token, no del cuerpo');
+    const attended = await mine('GET', '/api/staff/attended');
+    assert.deepEqual(attended.json.map((p) => p.id), ['pac2']);
+    assert.deepEqual((await other('GET', '/api/staff/attended')).json, []);
+    const history = await mine('GET', '/api/staff/patients/pac2/history');
+    assert.equal(history.json.attentions[0].note, 'Primera consulta');
+    assert.equal((await mine('POST', '/api/staff/patients/fun4/attentions', {})).status, 404, 'solo se atiende a pacientes');
+  });
+
+  it('funcionario conserva todo lo de un usuario normal (perfil, chat y planes)', async () => {
+    seedUser('fun5', 'FUNCIONARIO');
+    const login = await loginUser('fun5');
+    assert.equal(login.json.user.role, 'FUNCIONARIO');
+    const call = withSession(login);
+    assert.equal((await call('GET', '/api/patient-auth/me')).json.user.role, 'FUNCIONARIO');
+    assert.equal((await call('POST', '/api/chat/messages', { sessionId: 'sess-fun-0005', role: 'user', content: 'hola' })).status, 201);
+    assert.equal((await call('GET', '/api/treatment-plans/mine')).status, 200);
+  });
+
+  it('usuario normal y visitante NO acceden a las rutas del funcionario', async () => {
+    seedUser('norm1');
+    const call = withSession(await loginUser('norm1'));
+    assert.equal((await call('GET', '/api/staff/patients')).status, 403);
+    assert.equal((await call('GET', '/api/staff/attended')).status, 403);
+    assert.equal((await request(base, 'GET', '/api/staff/patients')).status, 401);
+    const pro = await loginPro();
+    assert.equal((await request(base, 'GET', '/api/staff/patients', { cookie: cookieOf(pro) })).status, 401, 'un profesional tampoco entra por ahí');
+  });
+
+  it('admin: crea cuentas con su perfil (funcionario, psicólogo, administrador) y valida los datos', async () => {
+    const call = await asAdmin();
+    const body = { kind: 'usuario', name: 'Marta Pérez', email: 'nueva.funcionaria@clinica.test', password: 'Clave-Segura-Larga-2026', role: 'FUNCIONARIO' };
+    const created = await call('POST', '/api/admin/accounts', body);
+    assert.equal(created.status, 201);
+    assert.equal(created.json.role, 'FUNCIONARIO');
+    assert.equal(created.json.passwordHash, undefined);
+    const login = await request(base, 'POST', '/api/patient-auth/login', { body: { email: body.email, password: body.password, ...humanForm() } });
+    assert.equal(login.status, 200);
+    assert.equal(login.json.user.role, 'FUNCIONARIO');
+
+    assert.equal((await call('POST', '/api/admin/accounts', body)).status, 409, 'correo repetido');
+    assert.equal((await call('POST', '/api/admin/accounts', { ...body, email: 'otra@clinica.test', role: 'ADMIN' })).status, 400, 'un usuario no puede nacer ADMIN');
+    assert.equal((await call('POST', '/api/admin/accounts', { ...body, email: 'debil@clinica.test', password: 'password123' })).status, 400);
+    assert.equal((await call('POST', '/api/admin/accounts', { ...body, email: 'pro@clinica.test', kind: 'profesional', role: 'PSICOLOGO', password: 'Corta-2026-x' })).status, 201, '12 caracteres bastan para un profesional');
+    assert.equal((await call('POST', '/api/admin/accounts', { ...body, email: 'pro2@clinica.test', kind: 'profesional', role: 'PSICOLOGO', password: 'Corta-2026' })).status, 400, 'un profesional exige 12 o más');
+    assert.equal((await call('POST', '/api/admin/accounts', { ...body, email: 'x@clinica.test', extra: 1 })).status, 400, 'no acepta campos de más');
+    assert.ok(store.audit.some((a) => a.action === 'admin_create_account'));
+    assert.ok(!JSON.stringify(store.audit).includes('Clave-Segura-Larga-2026'), 'las contraseñas nunca van a la bitácora');
+  });
+
+  it('admin: suspender cierra la sesión abierta y bloquea el ingreso; reactivar lo restablece', async () => {
+    seedUser('sus1');
+    const user = withSession(await loginUser('sus1'));
+    assert.equal((await user('GET', '/api/patient-auth/me')).status, 200);
+    const call = await asAdmin();
+    assert.equal((await call('PATCH', '/api/admin/accounts/usuario/sus1/status', { status: 'suspendido' })).status, 200);
+    assert.equal((await user('GET', '/api/patient-auth/me')).status, 401, 'la sesión que ya estaba abierta deja de valer');
+    const blocked = await loginUser('sus1');
+    assert.equal(blocked.status, 403);
+    assert.match(blocked.json.error, /suspendida/);
+    assert.equal((await call('PATCH', '/api/admin/accounts/usuario/sus1/status', { status: 'activo' })).status, 200);
+    assert.equal((await loginUser('sus1')).status, 200);
+  });
+
+  it('admin: una cuenta suspendida con credenciales incorrectas NO revela que existe', async () => {
+    seedUser('sus2');
+    const call = await asAdmin();
+    await call('PATCH', '/api/admin/accounts/usuario/sus2/status', { status: 'suspendido' });
+    const wrong = await loginUser('sus2', 'contraseña-incorrecta-1');
+    assert.equal(wrong.status, 401);
+    assert.equal(wrong.json.error, 'Credenciales inválidas');
+  });
+
+  it('admin: cambiar la contraseña cierra las sesiones abiertas y la clave anterior deja de servir', async () => {
+    seedUser('pw1');
+    const old = withSession(await loginUser('pw1'));
+    assert.equal((await old('GET', '/api/patient-auth/me')).status, 200);
+    await new Promise((r) => setTimeout(r, 1100)); // el token guarda su fecha en segundos
+    const call = await asAdmin();
+    assert.equal((await call('PATCH', '/api/admin/accounts/usuario/pw1/password', { password: 'password123' })).status, 400, 'aplica la política de contraseñas');
+    assert.equal((await call('PATCH', '/api/admin/accounts/usuario/pw1/password', { password: 'Otra-Clave-Larga-2026' })).status, 200);
+    assert.equal((await old('GET', '/api/patient-auth/me')).status, 401);
+    assert.equal((await loginUser('pw1')).status, 401, 'la contraseña anterior ya no sirve');
+    assert.equal((await loginUser('pw1', 'Otra-Clave-Larga-2026')).status, 200);
+  });
+
+  it('admin: cambia el perfil de un usuario y se aplica al instante (sin volver a iniciar sesión)', async () => {
+    seedUser('prom1');
+    const user = withSession(await loginUser('prom1'));
+    assert.equal((await user('GET', '/api/staff/patients')).status, 403);
+    const call = await asAdmin();
+    assert.equal((await call('PATCH', '/api/admin/accounts/usuario/prom1/role', { role: 'FUNCIONARIO' })).status, 200);
+    assert.equal((await user('GET', '/api/staff/patients')).status, 200);
+    assert.equal((await call('PATCH', '/api/admin/accounts/usuario/prom1/role', { role: 'USUARIO' })).status, 200);
+    assert.equal((await user('GET', '/api/staff/patients')).status, 403);
+    assert.equal((await call('PATCH', '/api/admin/accounts/usuario/prom1/role', { role: 'ADMIN' })).status, 400, 'no se asciende a administrador por aquí');
+    assert.equal((await call('PATCH', '/api/admin/accounts/profesional/p1/role', { role: 'FUNCIONARIO' })).status, 400, 'solo cuentas de usuario');
+  });
+
+  it('admin: elimina una cuenta; ya no puede entrar y volver a eliminarla da 404', async () => {
+    seedUser('del1');
+    const user = withSession(await loginUser('del1'));
+    const call = await asAdmin();
+    assert.equal((await call('DELETE', '/api/admin/accounts/usuario/del1')).status, 200);
+    assert.equal((await user('GET', '/api/patient-auth/me')).status, 401);
+    assert.equal((await loginUser('del1')).status, 401);
+    assert.equal((await call('DELETE', '/api/admin/accounts/usuario/del1')).status, 404);
+    assert.ok(store.audit.some((a) => a.action === 'admin_delete_account' && a.resourceId === 'del1'));
+  });
+
+  it('admin: no puede suspenderse ni eliminarse a sí mismo, ni quitar al único administrador', async () => {
+    const call = await asAdmin();
+    assert.equal((await call('PATCH', '/api/admin/accounts/profesional/p1/status', { status: 'suspendido' })).status, 409);
+    assert.equal((await call('DELETE', '/api/admin/accounts/profesional/p1')).status, 409);
+    assert.ok(store.pros.has('p1'));
+  });
+
+  it('listar cuentas: filtra por tipo y búsqueda, y nunca muestra contraseñas', async () => {
+    seedUser('lista1', 'FUNCIONARIO');
+    const call = await asAdmin();
+    const all = await call('GET', '/api/admin/accounts');
+    assert.equal(all.status, 200);
+    assert.ok(all.json.some((a) => a.id === 'lista1' && a.kind === 'usuario' && a.role === 'FUNCIONARIO'));
+    assert.ok(!all.text.includes('passwordHash') && !all.text.includes('h:'));
+    const onlyPros = await call('GET', '/api/admin/accounts?kind=profesional');
+    assert.ok(onlyPros.json.every((a) => a.kind === 'profesional'));
+    assert.ok((await call('GET', '/api/admin/accounts?q=lista1')).json.some((a) => a.id === 'lista1'));
+    assert.equal((await call('GET', '/api/admin/accounts?kind=otro')).status, 400);
+  });
+
+  it('solo el ADMIN gestiona cuentas: psicólogo, funcionario, usuario y visitante reciben 403/401', async () => {
+    store.pros.set('p3', { id: 'p3', name: 'Psi', email: 'psi@clinica.test', passwordHash: `h:${PRO_PASSWORD}`, role: 'PSICOLOGO', status: 'activo' });
+    seedUser('fun9', 'FUNCIONARIO');
+    const psi = await request(base, 'POST', '/api/auth/login', { body: { email: 'psi@clinica.test', password: PRO_PASSWORD, ...humanForm() } });
+    assert.equal(psi.status, 200);
+    const asPsi = withSession(psi);
+    assert.equal((await asPsi('GET', '/api/admin/accounts')).status, 403);
+    assert.equal((await asPsi('DELETE', '/api/admin/accounts/usuario/fun9')).status, 403);
+    const asFun = withSession(await loginUser('fun9'));
+    assert.equal((await asFun('GET', '/api/admin/accounts')).status, 401);
+    assert.equal((await asFun('DELETE', '/api/admin/accounts/usuario/fun9')).status, 401);
+    assert.equal((await request(base, 'GET', '/api/admin/accounts')).status, 401);
+    assert.ok(store.users.has('fun9'));
+  });
+
+  it('un profesional suspendido no puede iniciar sesión', async () => {
+    store.pros.set('p4', { id: 'p4', name: 'Susp', email: 'susp@clinica.test', passwordHash: `h:${PRO_PASSWORD}`, role: 'PSICOLOGO', status: 'suspendido' });
+    const r = await request(base, 'POST', '/api/auth/login', { body: { email: 'susp@clinica.test', password: PRO_PASSWORD, ...humanForm() } });
+    assert.equal(r.status, 403);
   });
 
   it('logout borra la cookie de sesión', async () => {

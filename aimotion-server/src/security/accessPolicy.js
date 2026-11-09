@@ -8,6 +8,7 @@
 //   optional     sin sesion obligatoria; si hay sesion de paciente se asocia
 //   patient      requiere sesion de paciente
 //   professional requiere sesion de profesional
+//   staff        requiere sesion de usuario cuyo perfil sea FUNCIONARIO
 //   admin        requiere profesional con rol ADMIN
 import { parseCookies } from './cookies.js';
 
@@ -35,7 +36,19 @@ export const ACCESS_POLICY = [
   ['GET', '/api/treatment-plans/mine', 'patient'],
   ['GET', '/api/treatment-plans/user/:userId', 'professional'],
   ['PATCH', '/api/treatment-plans/:id/progress', 'patient'],
+  // Funcionario: lo mismo que un usuario, y ademas el historial de pacientes y sus atenciones.
+  ['GET', '/api/staff/patients', 'staff'],
+  ['GET', '/api/staff/patients/:id/history', 'staff'],
+  ['POST', '/api/staff/patients/:id/attentions', 'staff'],
+  ['GET', '/api/staff/attended', 'staff'],
+  // Administrador: control maestro de cuentas.
   ['GET', '/api/admin/metrics', 'admin'],
+  ['GET', '/api/admin/accounts', 'admin'],
+  ['POST', '/api/admin/accounts', 'admin'],
+  ['PATCH', '/api/admin/accounts/:kind/:id/status', 'admin'],
+  ['PATCH', '/api/admin/accounts/:kind/:id/password', 'admin'],
+  ['PATCH', '/api/admin/accounts/:kind/:id/role', 'admin'],
+  ['DELETE', '/api/admin/accounts/:kind/:id', 'admin'],
 ];
 
 function matches(pattern, path) {
@@ -64,8 +77,9 @@ export function createAuthenticator({ verify, names }) {
     req.cookies = parseCookies(req.headers.cookie);
     const pro = req.cookies[names.professional] ? verify(req.cookies[names.professional], 'professional') : null;
     const pat = req.cookies[names.patient] ? verify(req.cookies[names.patient], 'patient') : null;
-    if (pro) req.professional = { id: pro.sub, email: pro.email, role: pro.role, name: pro.name };
-    if (pat) req.user = { id: pat.sub, email: pat.email, name: pat.name };
+    // iat = cuando se emitio el token: permite invalidar sesiones antiguas (ver sessionGuard.js).
+    if (pro) req.professional = { id: pro.sub, email: pro.email, role: pro.role, name: pro.name, iat: pro.iat };
+    if (pat) req.user = { id: pat.sub, email: pat.email, name: pat.name, iat: pat.iat };
     next();
   };
 }
@@ -76,6 +90,10 @@ export function enforceAccess(policy = ACCESS_POLICY) {
     if (level === null) return res.status(403).json({ error: 'Ruta no permitida' });
     if (level === 'public' || level === 'optional') return next();
     if (level === 'patient') return req.user ? next() : res.status(401).json({ error: 'Inicia sesión para continuar' });
+    if (level === 'staff') {
+      if (!req.user) return res.status(401).json({ error: 'Inicia sesión para continuar' });
+      return req.user.role === 'FUNCIONARIO' ? next() : res.status(403).json({ error: 'No tienes permiso para esta acción' });
+    }
     if (level === 'professional') return req.professional ? next() : res.status(401).json({ error: 'Inicia sesión como profesional para continuar' });
     if (level === 'admin') {
       if (!req.professional) return res.status(401).json({ error: 'Inicia sesión como profesional para continuar' });

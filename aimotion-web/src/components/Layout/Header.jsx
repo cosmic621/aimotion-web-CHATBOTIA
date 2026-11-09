@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Brain, Menu, X } from 'lucide-react';
+import { usePatientSession } from '../../lib/patientSession';
 
 const NAV_ITEMS = [
   { id: 'inicio', label: 'Inicio' },
@@ -11,8 +12,15 @@ const NAV_ITEMS = [
   { id: 'contacto', label: 'Contacto' },
 ];
 
+// Solo quien tiene perfil de funcionario ve esta opcion (el servidor la protege igual).
+const STAFF_ITEM = { id: 'funcionario', label: 'Panel Funcionario' };
+
 export default function Header({ activeSection, onNavigate }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const patient = usePatientSession();
+  const navItems = patient?.role === 'FUNCIONARIO'
+    ? [...NAV_ITEMS.slice(0, 5), STAFF_ITEM, ...NAV_ITEMS.slice(5)]
+    : NAV_ITEMS;
 
   const handleNavigate = (id) => {
     onNavigate(id);
@@ -31,7 +39,7 @@ export default function Header({ activeSection, onNavigate }) {
           </div>
 
           <div className="hidden md:flex space-x-6">
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <button
                 key={item.id}
                 onClick={() => handleNavigate(item.id)}
@@ -55,7 +63,7 @@ export default function Header({ activeSection, onNavigate }) {
 
         {mobileOpen && (
           <div className="md:hidden mt-4 flex flex-col space-y-3 pb-2">
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <button
                 key={item.id}
                 onClick={() => handleNavigate(item.id)}

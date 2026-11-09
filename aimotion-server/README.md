@@ -27,13 +27,13 @@ o conecta como superusuario. Para desarrollo rápido puedes usar la misma URL de
 | `npm start` / `npm run dev` | Inicia el servidor (`dev` recarga al guardar) |
 | `npm run generate-keys` | Genera `JWT_SECRET` y `DATA_ENCRYPTION_KEY` aleatorios |
 | `npm run migrate` / `migrate:rls` | Aplica `schema.sql` / `rls.sql` (conexión de administración, en una transacción) |
-| `npm run setup-roles` | Crea el rol `aimotion_app` (sin DDL, sin DELETE, sin superusuario) y sus permisos (`--reset` renueva su contraseña) |
+| `npm run setup-roles` | Crea el rol `aimotion_app` (sin DDL ni superusuario; DELETE solo sobre cuentas y solo para el rol admin vía RLS) y sus permisos (`--reset` renueva su contraseña) |
 | `npm run create-professional` | Crea un profesional (`--role=ADMIN\|PSICOLOGO`); la contraseña se pide oculta; mínimo 12 caracteres |
 | `npm run encrypt-existing` | Cifra datos antiguos en texto plano (`-- --dry-run` solo cuenta) |
-| `npm run test-rls` | Verifica en tu BD real que RLS y los privilegios funcionan (28 comprobaciones) |
+| `npm run test-rls` | Verifica en tu BD real que RLS y los privilegios funcionan (incluye funcionario y admin) |
 | `npm run test-sms -- --phone=3001234567` | Prueba la pasarela SMS |
 | `npm run scan-secrets` | Busca secretos en los archivos versionados |
-| `npm test` | 212 pruebas unitarias + 20 de integración de seguridad (estas necesitan `npm install`) |
+| `npm test` | 253 pruebas unitarias + 34 de integración de seguridad (estas necesitan `npm install`) |
 | `npm run audit` | `npm audit` (severidad alta o crítica) |
 
 ## Variables de entorno (`.env.example` documenta cada una)
@@ -75,7 +75,16 @@ Las peticiones que modifican datos con sesión necesitan la cabecera `X-CSRF-Tok
 | GET | `/api/treatment-plans/mine` | Paciente | Planes propios |
 | GET | `/api/treatment-plans/user/:id` | Profesional | Planes de un paciente |
 | PATCH | `/api/treatment-plans/:id/progress` | Paciente | Marca una semana |
+| GET | `/api/staff/patients` | Funcionario | Pacientes (`?q=` busca por nombre o correo) con su actividad |
+| GET | `/api/staff/patients/:id/history` | Funcionario | Chat, tamizajes y planes de un paciente (queda en auditoría) |
+| POST | `/api/staff/patients/:id/attentions` | Funcionario | Registra que atendió al paciente (nota opcional, cifrada) |
+| GET | `/api/staff/attended` | Funcionario | Pacientes que ha atendido, con número de atenciones |
 | GET | `/api/admin/metrics` | ADMIN | Consultas de BD, limitadores, estado de RLS |
+| GET / POST | `/api/admin/accounts` | ADMIN | Lista (`?kind=&q=`) / crea cuentas con su perfil |
+| PATCH | `/api/admin/accounts/:kind/:id/status` | ADMIN | Suspende o reactiva (cierra sus sesiones) |
+| PATCH | `/api/admin/accounts/:kind/:id/password` | ADMIN | Cambia la contraseña (cierra sus sesiones) |
+| PATCH | `/api/admin/accounts/:kind/:id/role` | ADMIN | Cambia el perfil de un usuario (USUARIO ⇄ FUNCIONARIO) |
+| DELETE | `/api/admin/accounts/:kind/:id` | ADMIN | Elimina la cuenta |
 
 "Opcional" = funciona sin sesión; con sesión de paciente se asocia a la cuenta. Las listas aceptan `?limit=` (máx. 100) y `?offset=`.
 **Eventos Socket.IO** (solo profesionales; cookie + origen verificados): `alert:new`, `alert:reviewed`.
@@ -101,3 +110,23 @@ App gratuita y de código abierto **SMS Gateway for Android** (capcom6); el celu
 3. Prueba: `npm run test-sms -- --phone=3001234567`. 4. Reinicia el servidor.
 
 > En un despliegue real el celular debe estar conectado 24/7 (o usar un proveedor SMS comercial).
+
+## Perfiles y roles
+
+| Perfil | Dónde vive | Qué puede hacer |
+|---|---|---|
+| **USUARIO** | tabla `users` | Chat, tamizajes y su plan (`Mi Progreso`). Se registra solo. |
+| **FUNCIONARIO** | tabla `users`, `role = FUNCIONARIO` | Todo lo del usuario, y además: ver el **historial de los pacientes** (chat, tamizajes, planes) y los **pacientes que ha atendido** (los que registra con «Registrar atención»). Inicia sesión por el mismo login de usuario. |
+| **PSICOLOGO** | tabla `professionals` | Panel profesional: alertas, tamizajes, planes. |
+| **ADMIN** | tabla `professionals`, `role = ADMIN` | **Control maestro de cuentas**: añadir, suspender/reactivar, cambiar contraseña, cambiar el perfil de un usuario y eliminar. |
+
+Cómo se aplican:
+
+- **Aplicar los cambios a una base existente:** `npm run migrate` → `npm run setup-roles` → `npm run migrate:rls` (los tres son idempotentes). Las cuentas que ya existen quedan como `USUARIO` / `activo`.
+- **Primer administrador:** `npm run create-professional -- --name="Tu Nombre" --email=tu@correo.com --role=ADMIN`. Los demás los crea ese administrador desde el panel (pestaña *Control de cuentas*).
+- **Un funcionario** se crea desde el panel de administración (tipo *Usuario / funcionario*, perfil *Funcionario*) o convirtiendo una cuenta de usuario existente.
+- **Suspender / cambiar contraseña / eliminar** tienen efecto inmediato: el servidor comprueba la cuenta en cada petición (`src/security/sessionGuard.js`), así que una sesión ya abierta deja de valer (el caché es de 5 s si hay varias instancias). Una sesión emitida en el mismo segundo anterior a un cambio de contraseña podría sobrevivir hasta ese límite de 1 s; la suspensión y la eliminación no tienen esa ventana.
+- **Protecciones del admin:** no puede suspenderse ni eliminarse a sí mismo ni quitar al **único** administrador activo. Eliminar un profesional que creó planes de tratamiento se rechaza (409): suspéndelo.
+- **Qué pasa al eliminar un usuario:** se borran su chat, tamizajes, planes y atenciones; sus **alertas de riesgo se conservan sin nombre ni vínculo** (registro de seguridad).
+- **Auditoría:** cada consulta de historial del funcionario y cada acción del admin queda en `audit_log` (las contraseñas nunca se registran).
+- El perfil **nunca** se acepta desde el cuerpo de una petición pública (el registro lo fija en `USUARIO`) y la base lo protege además con un trigger y RLS: nadie puede ascenderse ni cambiar su propio estado o contraseña por SQL.

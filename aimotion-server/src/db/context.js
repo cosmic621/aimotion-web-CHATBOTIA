@@ -5,7 +5,11 @@
 //   anon          visitante sin cuenta (solo su propia sesion de chat)
 //   patient       persona con cuenta (solo sus propias filas)
 //   professional  profesional autenticado
+//   staff         funcionario autenticado (lee el historial de pacientes)
+//   admin         administrador autenticado (gestiona cuentas)
 export const systemCtx = () => ({ role: 'system' });
 export const anonCtx = (sessionId) => ({ role: 'anon', sessionId: sessionId || '' });
 export const patientCtx = (user) => ({ role: 'patient', userId: user.id });
 export const professionalCtx = (professional) => ({ role: 'professional', userId: professional.id });
+export const staffCtx = (user) => ({ role: 'staff', userId: user.id });
+export const adminCtx = (professional) => ({ role: 'admin', userId: professional.id });

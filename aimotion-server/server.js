@@ -18,6 +18,8 @@ import { createEmailService } from './src/services/emailService.js';
 import { createProfessionalSmsService } from './src/services/smsService.js';
 import { createContactSmsService } from './src/services/contactSmsService.js';
 import { setIo, emitToProfessionals } from './src/realtime.js';
+import { systemCtx } from './src/db/context.js';
+import { isSessionAllowed } from './src/domain/accountRules.js';
 
 // 1. Configuracion: el servidor NO arranca con secretos debiles o configuracion insegura.
 const { config, errors, warnings } = loadConfig(process.env);
@@ -54,13 +56,16 @@ const io = new Server(httpServer, {
   cors: { origin: config.corsOrigins, credentials: true },
   maxHttpBufferSize: 1e4,
 });
-io.use((socket, next) => {
+io.use(async (socket, next) => {
   const origin = socket.handshake.headers.origin;
   if (origin && !config.corsOrigins.includes(origin)) return next(new Error('unauthorized'));
   const cookies = parseCookies(socket.handshake.headers.cookie);
   const payload = tokens.verify(cookies[config.cookies.names.professional], 'professional');
   if (!payload) return next(new Error('unauthorized'));
-  socket.professional = { id: payload.sub, name: payload.name, role: payload.role };
+  // Una cuenta suspendida, eliminada o con la clave cambiada tampoco recibe alertas en vivo.
+  const account = await repos.professionals.findById(systemCtx(), payload.sub).catch(() => null);
+  if (!isSessionAllowed(account, payload.iat)) return next(new Error('unauthorized'));
+  socket.professional = { id: account.id, name: account.name, role: account.role };
   return next();
 });
 io.on('connection', (socket) => {

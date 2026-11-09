@@ -96,6 +96,7 @@ export async function logoutPatient() {
   setCsrfToken(null);
 }
 
+export const getPatientMe = () => request('/api/patient-auth/me');
 export const updateEmergencyContact = (data) => request('/api/patient-auth/contact', { method: 'PATCH', body: JSON.stringify(data) });
 
 // ---------------------------------------------------------------------
@@ -116,3 +117,29 @@ export const getMyTreatmentPlans = () => request('/api/treatment-plans/mine');
 export const getUserTreatmentPlans = (userId) => request(`/api/treatment-plans/user/${encodeURIComponent(userId)}`);
 export const updateTreatmentPlanProgress = (planId, weekNumber, completed) =>
   request(`/api/treatment-plans/${encodeURIComponent(planId)}/progress`, { method: 'PATCH', body: JSON.stringify({ weekNumber, completed }) });
+
+// ---------------------------------------------------------------------
+// Funcionario: historial de pacientes y pacientes atendidos
+// ---------------------------------------------------------------------
+export const getStaffPatients = (q = '') => request(`/api/staff/patients${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+export const getStaffPatientHistory = (patientId) => request(`/api/staff/patients/${encodeURIComponent(patientId)}/history`);
+export const recordAttention = (patientId, note) =>
+  request(`/api/staff/patients/${encodeURIComponent(patientId)}/attentions`, { method: 'POST', body: JSON.stringify({ note: note || null }) });
+export const getStaffAttended = () => request('/api/staff/attended');
+
+// ---------------------------------------------------------------------
+// Administrador: control maestro de cuentas
+// ---------------------------------------------------------------------
+export function getAccounts({ kind, q } = {}) {
+  const params = new URLSearchParams();
+  if (kind) params.set('kind', kind);
+  if (q) params.set('q', q);
+  const qs = params.toString();
+  return request(`/api/admin/accounts${qs ? `?${qs}` : ''}`);
+}
+const accountPath = (kind, id) => `/api/admin/accounts/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`;
+export const createAccount = (data) => request('/api/admin/accounts', { method: 'POST', body: JSON.stringify(data) });
+export const setAccountStatus = (kind, id, status) => request(`${accountPath(kind, id)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
+export const setAccountPassword = (kind, id, password) => request(`${accountPath(kind, id)}/password`, { method: 'PATCH', body: JSON.stringify({ password }) });
+export const setAccountRole = (kind, id, role) => request(`${accountPath(kind, id)}/role`, { method: 'PATCH', body: JSON.stringify({ role }) });
+export const deleteAccount = (kind, id) => request(accountPath(kind, id), { method: 'DELETE' });

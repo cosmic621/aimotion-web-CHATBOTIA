@@ -7,8 +7,8 @@ import EmergencyContactFields, { EMPTY_CONTACT } from './EmergencyContactFields'
 const inputClass =
   'w-full border-2 border-brand-200 rounded-full px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-600';
 
-export default function PatientAuth({ onSuccess, onDismiss }) {
-  const [mode, setMode] = useState('register'); // 'register' | 'login'
+export default function PatientAuth({ onSuccess, onDismiss, initialMode = 'register' }) {
+  const [mode, setMode] = useState(initialMode); // 'register' | 'login'
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
