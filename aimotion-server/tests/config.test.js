@@ -38,8 +38,12 @@ describe('config: loadConfig', () => {
     assert.equal(loadConfig({ ...base(), BCRYPT_COST: '4' }).config.bcryptCost, 12);
     assert.equal(loadConfig({ ...base(), BCRYPT_COST: '14' }).config.bcryptCost, 14);
   });
-  it('SameSite solo acepta Strict o Lax (nunca None)', () => {
-    assert.equal(loadConfig({ ...base(), COOKIE_SAMESITE: 'None' }).config.cookies.sameSite, 'Strict');
+  it('SameSite: Strict por defecto; None solo con cookies Secure (producción), nunca en HTTP', () => {
+    assert.equal(loadConfig({ ...base(), COOKIE_SAMESITE: 'None' }).config.cookies.sameSite, 'Strict', 'sin HTTPS, None se ignora');
+    assert.equal(loadConfig(prod()).config.cookies.sameSite, 'Strict');
+    assert.equal(loadConfig({ ...prod(), COOKIE_SAMESITE: 'None' }).config.cookies.sameSite, 'None');
+    assert.equal(loadConfig({ ...prod(), COOKIE_SAMESITE: 'None' }).config.cookies.secure, true);
+    assert.equal(loadConfig({ ...prod(), COOKIE_SAMESITE: 'cualquiera' }).config.cookies.sameSite, 'Strict');
     assert.equal(loadConfig({ ...base(), COOKIE_SAMESITE: 'Lax' }).config.cookies.sameSite, 'Lax');
   });
   it('TLS hacia la base de datos valida el certificado por defecto', () => {

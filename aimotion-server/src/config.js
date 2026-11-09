@@ -35,7 +35,12 @@ export function loadConfig(env = process.env) {
     trustProxy,
     cookies: {
       secure: secureCookies,
-      sameSite: ['Strict', 'Lax'].includes(env.COOKIE_SAMESITE) ? env.COOKIE_SAMESITE : 'Strict',
+      // None solo se acepta si las cookies van con Secure (HTTPS). Se necesita cuando el frontend y la API
+      // estan en sitios distintos (p. ej. xxx.vercel.app y xxx.onrender.com); el CSRF se sigue
+      // protegiendo con la verificacion de Origin y el token.
+      sameSite: env.COOKIE_SAMESITE === 'None' && secureCookies
+        ? 'None'
+        : ['Strict', 'Lax'].includes(env.COOKIE_SAMESITE) ? env.COOKIE_SAMESITE : 'Strict',
       names: cookieNames(secureCookies),
     },
     turnstileSecret: env.TURNSTILE_SECRET || '',
