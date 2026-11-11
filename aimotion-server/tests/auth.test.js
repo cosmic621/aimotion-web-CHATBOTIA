@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createPasswordHasher, MIN_COST } from '../src/auth/hash.js';
 import { createTokenService, TTL_SECONDS } from '../src/auth/tokens.js';
 import { scoreScale, validateAnswers } from '../src/domain/scales.js';
-import { createContactSmsService } from '../src/services/contactSmsService.js';
+import { createContactSmsService, mapsLink } from '../src/services/contactSmsService.js';
 import { normalizePhone } from '../src/utils/phone.js';
 
 // ---- bcrypt simulado (la logica propia se prueba aqui; bcrypt real corre en tu maquina) ----
@@ -172,6 +172,35 @@ describe('services/contactSms: SMS al contacto de emergencia', () => {
       const msg = svc.buildMessage({ name });
       assert.ok(!/http|:\/\/|<|>|3009998888/.test(msg), `${name} -> ${msg}`);
     }
+  });
+  it('con ubicación: el SMS termina con un enlace de mapa armado solo con las coordenadas', () => {
+    const svc = createContactSmsService({ gateway });
+    const msg = svc.buildMessage(user, { lat: 4.711, lng: -74.0721, accuracy: 20 });
+    assert.match(msg, / https:\/\/maps\.google\.com\/\?q=4\.71100,-74\.07210$/);
+    assert.ok(!/[^\x20-\x7E]/.test(msg), 'sigue siendo ASCII simple');
+    assert.match(msg, /Linea 106/);
+  });
+  it('sin ubicación el mensaje es el de siempre (sin enlace)', () => {
+    const svc = createContactSmsService({ gateway });
+    assert.ok(!/http|maps/.test(svc.buildMessage(user)));
+    assert.equal(svc.buildMessage(user), svc.buildMessage(user, null));
+  });
+  it('mapsLink rechaza coordenadas inválidas o con texto (no se cuela nada en el enlace)', () => {
+    assert.equal(mapsLink({ lat: 91, lng: 0 }), null);
+    assert.equal(mapsLink({ lat: 0, lng: 181 }), null);
+    assert.equal(mapsLink({ lat: NaN, lng: 0 }), null);
+    assert.equal(mapsLink({ lat: undefined, lng: 0 }), null);
+    assert.equal(mapsLink(null), null);
+    assert.equal(mapsLink({ lat: '4.7; http://evil.example', lng: -74 }), null);
+    assert.equal(mapsLink({ lat: -33.8688, lng: 151.2093 }), 'https://maps.google.com/?q=-33.86880,151.20930');
+  });
+  it('send() entrega la ubicación a la pasarela dentro del mensaje', async () => {
+    const f = okFetch();
+    await createContactSmsService({ gateway, fetchImpl: f }).send(user, { location: { lat: 4.711, lng: -74.0721 } });
+    assert.match(JSON.parse(f.calls[0].opts.body).message, /maps\.google\.com\/\?q=4\.71100,-74\.07210/);
+    const f2 = okFetch();
+    await createContactSmsService({ gateway, fetchImpl: f2 }).send(user);
+    assert.ok(!/maps\.google/.test(JSON.parse(f2.calls[0].opts.body).message));
   });
   it('sin pasarela configurada, con teléfono inválido o URL rara: no envía', async () => {
     const f = okFetch();

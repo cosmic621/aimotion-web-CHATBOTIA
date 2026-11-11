@@ -130,3 +130,10 @@ Las sesiones anteriores dejan de valer: hay que volver a iniciar sesión.
 - **Datos sensibles:** la nota de una atención se cifra (AES-256-GCM, ligada a su fila). Cada consulta de historial y cada acción del admin queda en `audit_log`; las contraseñas nunca se registran.
 - **Privacidad al eliminar:** borrar un usuario elimina su chat, tamizajes, planes y atenciones; las alertas de riesgo se conservan anonimizadas.
 - **Salvaguardas:** el admin no puede quitarse el acceso (autosuspensión, autoeliminación, último admin activo) y el perfil jamás se acepta desde una petición pública.
+
+## Ubicación en el aviso al contacto de emergencia
+
+- Cuando hay riesgo **crítico**, con cuenta, contacto y consentimiento, el SMS al contacto puede incluir un enlace de mapa con la ubicación de la persona en ese momento.
+- La ubicación la da **el navegador y solo si la persona acepta su ventana de permiso** (no se deduce por IP). Se pide al registrarse o al guardar el contacto, nunca en plena crisis; si el permiso no está concedido, el SMS sale igual, sin enlace.
+- El servidor **no la guarda ni la devuelve**: se usa solo para armar el enlace. El enlace se construye únicamente con coordenadas numéricas validadas (rangos de latitud/longitud), nunca con texto del usuario.
+- El consentimiento del contacto de emergencia ahora menciona la ubicación.

@@ -33,7 +33,7 @@ o conecta como superusuario. Para desarrollo rápido puedes usar la misma URL de
 | `npm run test-rls` | Verifica en tu BD real que RLS y los privilegios funcionan (incluye funcionario y admin) |
 | `npm run test-sms -- --phone=3001234567` | Prueba la pasarela SMS |
 | `npm run scan-secrets` | Busca secretos en los archivos versionados |
-| `npm test` | 253 pruebas unitarias + 34 de integración de seguridad (estas necesitan `npm install`) |
+| `npm test` | 257 pruebas unitarias + 36 de integración de seguridad (estas necesitan `npm install`) |
 | `npm run audit` | `npm audit` (severidad alta o crítica) |
 
 ## Variables de entorno (`.env.example` documenta cada una)

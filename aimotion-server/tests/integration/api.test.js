@@ -156,7 +156,7 @@ const cookieOf = (res) => (res.headers['set-cookie'] || []).map((c) => c.split('
 const humanForm = () => ({ website: '', formStartedAt: Date.now() - 5000 });
 
 describe('API (integración de seguridad)', { skip: !lib && 'dependencias no instaladas (npm install)' }, () => {
-  let server; let base; let store; let contactSent; let limiters;
+  let server; let base; let store; let contactSent; let contactLocations; let limiters;
 
   before(async () => {
     const { config } = lib.loadConfig({
@@ -166,6 +166,7 @@ describe('API (integración de seguridad)', { skip: !lib && 'dependencias no ins
     const made = makeRepos();
     store = made.store;
     contactSent = [];
+    contactLocations = [];
     limiters = lib.createLimiters();
     const app = lib.createApp({
       config, repos: made.repos,
@@ -174,7 +175,7 @@ describe('API (integración de seguridad)', { skip: !lib && 'dependencias no ins
       hasher: { hash: async (p) => `h:${p}`, verify: async (p, h) => Boolean(h) && h === `h:${p}`, needsRehash: () => false },
       services: {
         email: { sendAlert: async () => ({ sent: false }) }, proSms: { sendAlert: async () => ({ sent: false }) },
-        contactSms: { send: async (user) => { contactSent.push(user.id); return { sent: true }; } },
+        contactSms: { send: async (user, opts) => { contactSent.push(user.id); contactLocations.push(opts?.location ?? null); return { sent: true }; } },
       },
       limiters, loginGuard: lib.createLoginGuard(), realtime: { emit: () => {} }, logger: { error: () => {} },
     });
@@ -334,6 +335,29 @@ describe('API (integración de seguridad)', { skip: !lib && 'dependencias no ins
     const second = await alert(cookie, csrf, 'critico'); // dentro de las 6 h
     assert.equal(contactSent.length, 1);
     assert.equal(second.json.notifications.contactSms.alreadyNotified, true);
+  });
+
+  it('ubicación: llega al SMS del contacto, pero no se guarda con la alerta', async () => {
+    const reg = await registerPatient('ubicacion@x.test');
+    const cookie = cookieOf(reg);
+    const csrf = reg.json.csrfToken;
+    const location = { lat: 4.711, lng: -74.0721, accuracy: 25 };
+    const r = await request(base, 'POST', '/api/alerts', { cookie, csrf, body: { sessionId: 'sess-ubicacion1', category: 'ideacion_suicida', severity: 'critico', excerpt: 'texto', location } });
+    assert.equal(r.status, 201);
+    assert.deepEqual(contactLocations.at(-1), location);
+    assert.ok(!JSON.stringify(store.alerts).includes('-74.0721'), 'la ubicación no se persiste');
+    assert.ok(!r.text.includes('-74.0721'), 'ni se devuelve');
+  });
+
+  it('ubicación: valida rangos y no acepta campos de más', async () => {
+    const reg = await registerPatient('ubicacion2@x.test');
+    const call = (location) => request(base, 'POST', '/api/alerts', { cookie: cookieOf(reg), csrf: reg.json.csrfToken, body: { sessionId: 'sess-ubicacion2', category: 'ideacion_suicida', severity: 'alto', excerpt: 'x', location } });
+    assert.equal((await call({ lat: 91, lng: 0 })).status, 400);
+    assert.equal((await call({ lat: 0, lng: -181 })).status, 400);
+    assert.equal((await call({ lat: '4.7', lng: -74 })).status, 400);
+    assert.equal((await call({ lat: 4.7 })).status, 400);
+    assert.equal((await call({ lat: 4.7, lng: -74, url: 'http://evil.example' })).status, 400);
+    assert.equal((await call(null)).status, 201, 'sin ubicación la alerta funciona igual');
   });
 
   it('una alerta con un mensaje MUY largo nunca se rechaza (se recorta)', async () => {

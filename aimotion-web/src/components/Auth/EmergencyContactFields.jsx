@@ -44,7 +44,9 @@ export default function EmergencyContactFields({ value, onChange }) {
         />
         <span>
           Autorizo que AIMotion envíe un SMS breve a este contacto si detecta una situación de riesgo
-          crítico para mí. El mensaje <strong>no incluye detalles de mi conversación</strong>.
+          crítico para mí. El mensaje <strong>no incluye detalles de mi conversación</strong>. Si le doy
+          permiso a mi navegador, el SMS incluirá un enlace con <strong>mi ubicación en ese momento</strong>
+          (no se guarda).
         </span>
       </label>
     </fieldset>

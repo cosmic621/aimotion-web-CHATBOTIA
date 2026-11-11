@@ -3,6 +3,7 @@ import { Heart, Send, Shield, UserCircle2, LogOut } from 'lucide-react';
 import { getBotResponse, INTRO_MESSAGE } from '../../lib/botResponses';
 import { analyzeTextRisk, RISK_CATEGORY_LABELS } from '../../lib/riskEngine';
 import { postAlert, postChatMessage, getChatHistory, logoutPatient } from '../../lib/api';
+import { getAlertLocation } from '../../lib/location';
 import { getSessionId } from '../../lib/session';
 import { getPatientSession, clearPatientSession } from '../../lib/patientSession';
 import RiskBanner from './RiskBanner';
@@ -56,6 +57,9 @@ export default function ChatAssistant() {
 
   const escalate = async (risk, excerpt) => {
     try {
+      // Con cuenta, y solo si la persona ya dio permiso al navegador, se adjunta su ubicacion actual
+      // para que el SMS al contacto de emergencia incluya un enlace al mapa. El servidor no la guarda.
+      const location = patient && risk.severity === 'critico' ? await getAlertLocation() : null;
       const alert = await postAlert({
         sessionId,
         userName,
@@ -63,6 +67,7 @@ export default function ChatAssistant() {
         severity: risk.severity,
         excerpt,
         source: 'chat',
+        ...(location ? { location } : {}),
       });
       return alert.notifications;
     } catch (err) {

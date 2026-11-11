@@ -16,6 +16,13 @@ const createSchema = v.object({
   // Se acepta un mensaje largo (nunca se rechaza una alerta por su tamaño) y se recorta a 500 al guardar.
   excerpt: v.string({ max: 5000 }).withDefault(''),
   source: v.enum(['chat', 'phq9', 'gad7']).withDefault('chat'),
+  // Ubicacion del navegador en el momento de la alerta (opcional; la persona debe haber dado permiso).
+  // Solo se usa para el enlace del SMS al contacto: NO se guarda en la base de datos.
+  location: v.object({
+    lat: v.number({ min: -90, max: 90, label: 'La latitud' }),
+    lng: v.number({ min: -180, max: 180, label: 'La longitud' }),
+    accuracy: v.number({ min: 0, max: 1_000_000, label: 'La precisión' }).optional(),
+  }).optional().nullable(),
 });
 
 const reviewSchema = v.object({ reviewerNote: v.string({ max: 1000 }).optional().nullable() });
@@ -36,7 +43,7 @@ export function createAlertsRouter({ repos, services, realtime, alertLimiter, au
    * Avisa al contacto de emergencia SOLO ante riesgo critico, con cuenta, contacto
    * y consentimiento. El usuario sale del token (req.user), nunca del cuerpo.
    */
-  async function notifyEmergencyContact(req, alert) {
+  async function notifyEmergencyContact(req, alert, location) {
     if (alert.severity !== 'critico') return null;
     if (!req.user) return { sent: false, reason: 'Sesión anónima: sin contacto de emergencia' };
     const sys = systemCtx();
@@ -46,7 +53,7 @@ export function createAlertsRouter({ repos, services, realtime, alertLimiter, au
     if (last && Date.now() - new Date(last).getTime() < CONTACT_COOLDOWN_MS) {
       return { sent: false, alreadyNotified: true, reason: 'Ya se avisó al contacto hace poco' };
     }
-    return services.contactSms.send(user);
+    return services.contactSms.send(user, { location: location || null });
   }
 
   router.post('/', alertLimiter, validate({ body: createSchema }), wrap(async (req, res) => {
@@ -62,7 +69,7 @@ export function createAlertsRouter({ repos, services, realtime, alertLimiter, au
     if (b.severity === 'alto' || b.severity === 'critico') {
       const sys = systemCtx();
       const [emailResult, smsResult, contactResult] = await Promise.all([
-        services.email.sendAlert(alert), services.proSms.sendAlert(alert), notifyEmergencyContact(req, alert),
+        services.email.sendAlert(alert), services.proSms.sendAlert(alert), notifyEmergencyContact(req, alert, b.location),
       ]);
       alert = (await repos.alerts.setNotificationResults(sys, alert.id, { emailResult, smsResult })) || alert;
       if (contactResult) {

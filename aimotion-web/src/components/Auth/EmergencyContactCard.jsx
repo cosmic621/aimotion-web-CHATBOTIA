@@ -1,3 +1,4 @@
+import { primeLocationPermission } from '../../lib/location';
 import React, { useState } from 'react';
 import { PhoneCall } from 'lucide-react';
 import { updateEmergencyContact } from '../../lib/api';
@@ -27,6 +28,7 @@ export default function EmergencyContactCard({ patient, onUpdated }) {
       });
       const session = getPatientSession();
       if (session) savePatientSession({ ...session, user });
+      primeLocationPermission();
       onUpdated(user);
       setEditing(false);
     } catch (err) {

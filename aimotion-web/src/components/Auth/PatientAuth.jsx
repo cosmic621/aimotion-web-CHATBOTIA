@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { UserPlus, LogIn, X } from 'lucide-react';
 import { registerPatient, loginPatient } from '../../lib/api';
 import { savePatientSession } from '../../lib/patientSession';
+import { primeLocationPermission } from '../../lib/location';
 import EmergencyContactFields, { EMPTY_CONTACT } from './EmergencyContactFields';
 
 const inputClass =
@@ -38,6 +39,9 @@ export default function PatientAuth({ onSuccess, onDismiss, initialMode = 'regis
             })
           : await loginPatient(email, password, { website, formStartedAt: startedAt.current });
       savePatientSession({ user: result.user });
+      // Si hay contacto de emergencia, se pide ya el permiso de ubicacion del navegador para poder
+      // compartirla con ese contacto en una emergencia (la persona puede negarlo).
+      if (result.user?.emergencyContact) primeLocationPermission();
       onSuccess(result.user);
     } catch (err) {
       setError(err.message || 'Algo salió mal, intenta de nuevo');

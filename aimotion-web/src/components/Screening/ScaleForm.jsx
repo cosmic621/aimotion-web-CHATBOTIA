@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import { RESPONSE_OPTIONS, PHQ9_QUESTIONS, GAD7_QUESTIONS, scorePHQ9, scoreGAD7 } from '../../lib/scales';
 import { checkPHQ9Item9 } from '../../lib/riskEngine';
 import { postScreening, postAlert } from '../../lib/api';
+import { getAlertLocation } from '../../lib/location';
+import { getPatientSession } from '../../lib/patientSession';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
 import RiskBanner from '../Chat/RiskBanner';
 
@@ -57,6 +59,8 @@ export default function ScaleForm({ type, sessionId, userName }) {
     if (risk) {
       let notificationStatus = { email: { sent: false }, sms: { sent: false } };
       try {
+        // Con cuenta y permiso ya concedido, se adjunta la ubicacion para el enlace del SMS al contacto.
+        const location = getPatientSession()?.user && risk.severity === 'critico' ? await getAlertLocation() : null;
         const alert = await postAlert({
           sessionId,
           userName: userName || null,
@@ -64,6 +68,7 @@ export default function ScaleForm({ type, sessionId, userName }) {
           severity: risk.severity,
           excerpt: `Ítem 9 del PHQ-9 positivo (respuesta: "${RESPONSE_OPTIONS[answers[8]].label}")`,
           source: 'phq9',
+          ...(location ? { location } : {}),
         });
         notificationStatus = alert.notifications;
       } catch (err) {
