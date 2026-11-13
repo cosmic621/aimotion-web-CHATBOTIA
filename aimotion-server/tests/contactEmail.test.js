@@ -22,10 +22,42 @@ describe('correo al contacto de emergencia (Brevo, por HTTPS)', () => {
     assert.deepEqual(body.sender, { name: 'AIMotion', email: 'remitente@correo.com' });
     assert.match(body.textContent, /maps\.google\.com\/\?q=4\.71100,-74\.07210/);
     assert.match(body.textContent, /Línea 106/);
+    assert.ok(body.htmlContent.startsWith('<!DOCTYPE html>'));
+    assert.ok(body.textContent && body.htmlContent, 'va en HTML y con versión de texto');
+  });
+  it('el HTML lleva el mapa (imagen), el botón a Google Maps y los botones de llamada', () => {
+    const { html } = createContactEmailService({ brevo }).buildMessage(user, { lat: 4.711, lng: -74.0721, accuracy: 20 });
+    assert.match(html, /<img src="https:\/\/staticmap\.openstreetmap\.de\/staticmap\.php\?center=4\.71100,-74\.07210&zoom=16&size=560x280&maptype=mapnik&markers=4\.71100,-74\.07210,red-pushpin"/);
+    assert.match(html, /href="https:\/\/maps\.google\.com\/\?q=4\.71100,-74\.07210"/);
+    assert.match(html, /href="tel:106"/);
+    assert.match(html, /href="tel:123"/);
+    assert.match(html, /Precisión aproximada: ±20 m/);
+    assert.ok(!/baja/.test(html), 'con buena precisión no se avisa de precisión baja');
+  });
+  it('precisión baja: se avisa y el mapa se aleja; sin precisión no se inventa', () => {
+    const svc = createContactEmailService({ brevo });
+    const low = svc.buildMessage(user, { lat: 4.711, lng: -74.0721, accuracy: 4200 });
+    assert.match(low.html, /precisión de esta ubicación es baja/);
+    assert.match(low.html, /zoom=12/);
+    assert.match(low.text, /La precisión es baja/);
+    const none = svc.buildMessage(user, { lat: 4.711, lng: -74.0721 });
+    assert.ok(!/Precisión aproximada/.test(none.html + none.text));
+    assert.match(none.html, /zoom=16/);
+  });
+  it('sin ubicación el HTML no lleva mapa ni enlace a mapas y lo dice', () => {
+    const { html } = createContactEmailService({ brevo }).buildMessage(user, null);
+    assert.ok(!/staticmap|maps\.google|<img/.test(html));
+    assert.match(html, /No se pudo obtener la ubicación/);
+  });
+  it('nada del usuario llega al HTML sin escapar (nombre y coordenadas con texto)', () => {
+    const evil = { ...user, name: 'Ana"><script>alert(1)</script>' };
+    const { html, subject } = createContactEmailService({ brevo }).buildMessage(evil, { lat: '4.7"><img src=x onerror=alert(1)>', lng: -74 });
+    assert.ok(!/<script|onerror|alert\(1\)/.test(html + subject));
+    assert.ok(!/staticmap/.test(html), 'coordenadas inválidas: no hay mapa');
   });
   it('sin ubicación el correo no lleva enlace', () => {
     const { text } = createContactEmailService({ brevo }).buildMessage(user, null);
-    assert.ok(!/http|maps/.test(text));
+    assert.ok(!/http|maps/.test(text.replace(/AIMotion/g, '')));
   });
   it('NO incluye nada de la conversación ni la categoría, y sanea el nombre', () => {
     const evil = { ...user, name: 'Ana\r\nBcc: x@y.com <b>http://evil.example</b>' };

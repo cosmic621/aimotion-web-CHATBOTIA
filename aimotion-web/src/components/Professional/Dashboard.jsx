@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { ShieldAlert, ClipboardList, CheckCircle2, RefreshCw, LogOut, Radio } from 'lucide-react';
+import { ShieldAlert, ClipboardList, CheckCircle2, RefreshCw, LogOut, Radio, Volume2, VolumeX, BellRing } from 'lucide-react';
 import { getAlerts, getScreenings, reviewAlert, logout } from '../../lib/api';
 import { getSession, clearSession } from '../../lib/authSession';
 import { connectSocket, disconnectSocket } from '../../lib/socket';
 import { RISK_CATEGORY_LABELS } from '../../lib/riskEngine';
+import { startAlarm, stopAlarm, testAlarm, unlockAudio, isAlarmEnabled, setAlarmEnabled, isAudioBlocked } from '../../lib/alarm';
 import Login from './Login';
 import UsersPanel from './UsersPanel';
 import AccountsAdmin from './AccountsAdmin';
@@ -24,6 +25,39 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(false);
   const [liveConnected, setLiveConnected] = useState(false);
   const [justArrivedId, setJustArrivedId] = useState(null);
+  const [alarmAlert, setAlarmAlert] = useState(null); // alerta CRITICA que esta sonando
+  const [soundOn, setSoundOn] = useState(() => isAlarmEnabled());
+  const [soundBlocked, setSoundBlocked] = useState(false);
+
+  // Los navegadores solo permiten sonido tras un toque en la pagina: el primero habilita la alarma.
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    return () => window.removeEventListener('pointerdown', unlock);
+  }, []);
+
+  // Mientras suena una alarma, el titulo de la pestana parpadea (se nota aunque estes en otra pestana).
+  useEffect(() => {
+    if (!alarmAlert) return undefined;
+    const original = document.title;
+    let on = false;
+    const id = setInterval(() => {
+      document.title = on ? original : '🚨 ALERTA CRÍTICA';
+      on = !on;
+    }, 800);
+    return () => {
+      clearInterval(id);
+      document.title = original;
+    };
+  }, [alarmAlert]);
+
+  // Al salir del panel, la alarma se apaga.
+  useEffect(() => () => stopAlarm(), []);
+
+  const silenceAlarm = () => {
+    stopAlarm();
+    setAlarmAlert(null);
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -62,6 +96,13 @@ export default function Dashboard() {
         if (prev.some((a) => a.id === alert.id)) return prev;
         return [alert, ...prev];
       });
+      if (alert.severity === 'critico') {
+        setAlarmAlert(alert);
+        if (isAlarmEnabled()) {
+          startAlarm();
+          setTimeout(() => setSoundBlocked(isAudioBlocked()), 400); // da tiempo a que el audio arranque
+        }
+      }
       setJustArrivedId(alert.id);
       setTimeout(() => setJustArrivedId((current) => (current === alert.id ? null : current)), 5000);
     });
@@ -88,6 +129,7 @@ export default function Dashboard() {
   };
 
   const handleLogout = async () => {
+    stopAlarm();
     disconnectSocket();
     await logout(); // el servidor borra la cookie de sesion
     clearSession();
@@ -107,8 +149,44 @@ export default function Dashboard() {
 
   const isAdmin = professional.role === 'ADMIN';
 
+  const toggleSound = () => {
+    const next = !soundOn;
+    setAlarmEnabled(next);
+    setSoundOn(next);
+    if (next) {
+      unlockAudio();
+      testAlarm();
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto">
+      {alarmAlert && (
+        <div role="alert" className="fixed top-0 inset-x-0 z-50 bg-red-600 text-white shadow-2xl animate-pulse">
+          <div className="max-w-5xl mx-auto px-4 py-4 flex items-center gap-4 flex-wrap">
+            <BellRing className="w-8 h-8 shrink-0" />
+            <div className="flex-1 min-w-[220px]">
+              <p className="font-extrabold text-lg leading-tight">ALERTA CRÍTICA — posible riesgo para una persona</p>
+              <p className="text-sm text-red-100">
+                {RISK_CATEGORY_LABELS[alarmAlert.category] || alarmAlert.category} · {alarmAlert.userName || 'Persona sin identificar'}
+                {soundOn && soundBlocked ? ' · Haz clic en la página para activar el sonido' : ''}
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                silenceAlarm();
+                setTab('alertas');
+              }}
+              className="bg-white text-red-700 font-bold px-4 py-2 rounded-full text-sm"
+            >
+              Ver alerta
+            </button>
+            <button onClick={silenceAlarm} className="bg-red-800 text-white font-bold px-4 py-2 rounded-full text-sm border border-red-300">
+              Silenciar alarma
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h2 className="text-3xl font-bold text-gray-900">Panel Profesional</h2>
@@ -120,6 +198,13 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-4">
+          <button
+            onClick={toggleSound}
+            title="Sonido de alarma para alertas críticas"
+            className={`flex items-center gap-2 text-sm ${soundOn ? 'text-brand-600' : 'text-gray-400'} hover:underline`}
+          >
+            {soundOn ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />} Alarma {soundOn ? 'activada' : 'silenciada'}
+          </button>
           <button onClick={loadData} className="flex items-center gap-2 text-brand-600 hover:underline text-sm">
             <RefreshCw className="w-4 h-4" /> Actualizar
           </button>

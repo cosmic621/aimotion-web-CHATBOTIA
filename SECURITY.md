@@ -143,3 +143,5 @@ Las sesiones anteriores dejan de valer: hay que volver a iniciar sesión.
 - El correo del contacto se guarda **cifrado** (AES-256-GCM, ligado a la fila) igual que su nombre, teléfono y parentesco, y es opcional.
 - El correo de aviso es mínimo: sin contenido de la conversación ni categoría de riesgo, con el nombre saneado, y solo con un enlace de mapa armado con coordenadas validadas. El destinatario sale del contacto guardado (nunca del cuerpo de la alerta) y se rechazan correos con comas, saltos de línea o símbolos (inyección de cabeceras).
 - Los errores de Brevo se registran solo con su código, porque su texto puede incluir el correo del contacto.
+
+- **Mapa en el correo:** la imagen se carga desde un servicio de mapas de terceros (OpenStreetMap) cuando el contacto abre el correo, y ese servicio ve las coordenadas. Si no se quiere esa exposición, basta quitar la imagen (queda el botón a Google Maps). Las URL del mapa y del enlace se arman solo con coordenadas numéricas validadas y todo texto se escapa en el HTML.

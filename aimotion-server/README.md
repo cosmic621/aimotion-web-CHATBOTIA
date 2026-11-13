@@ -33,7 +33,7 @@ o conecta como superusuario. Para desarrollo rápido puedes usar la misma URL de
 | `npm run test-rls` | Verifica en tu BD real que RLS y los privilegios funcionan (incluye funcionario y admin) |
 | `npm run test-sms -- --phone=3001234567` | Prueba la pasarela SMS |
 | `npm run scan-secrets` | Busca secretos en los archivos versionados |
-| `npm test` | 272 pruebas unitarias + 39 de integración de seguridad (estas necesitan `npm install`) |
+| `npm test` | 276 pruebas unitarias + 39 de integración de seguridad (estas necesitan `npm install`) |
 | `npm run audit` | `npm audit` (severidad alta o crítica) |
 
 ## Variables de entorno (`.env.example` documenta cada una)
@@ -148,3 +148,13 @@ Además del SMS, si el contacto tiene un correo registrado, el aviso crítico le
 - Variables en el servidor: `BREVO_API_KEY` (empieza por `xkeysib-`), `BREVO_SENDER_EMAIL` (correo remitente **verificado en Brevo**) y, opcional, `BREVO_SENDER_NAME`.
 - Al actualizar una base existente, corre `npm run migrate` y `npm run setup-roles` (agregan la columna cifrada `emergency_contact_email`).
 - Si no sale, el motivo queda en `alerts.contact_sms_reason`, en los logs y en la tarjeta de la alerta del Panel Profesional (por ejemplo, `Correo: Brevo respondió 401 (unauthorized)`).
+
+### Formato del correo, mapa y precisión de la ubicación
+
+- El correo es HTML (con versión de texto): encabezado con los colores institucionales, aviso rojo, **mapa** de la ubicación (imagen de OpenStreetMap), botón «Abrir en Google Maps» y botones para llamar a la Línea 106 y al 123.
+- La imagen del mapa la carga el correo del contacto desde `staticmap.openstreetmap.de`, un servicio comunitario gratuito (puede tardar o no estar disponible; el botón a Google Maps siempre funciona). Al cargarla, ese servicio recibe las coordenadas.
+- El navegador lee la ubicación varios segundos y se queda con la **lectura más precisa** (nunca una guardada). El correo indica la precisión y avisa cuando es baja (> 500 m): en computadores sin GPS el navegador suele calcularla por Wi-Fi/IP y puede quedar a kilómetros. Para ubicaciones exactas, el aviso debe originarse en un celular con GPS.
+
+### Alarma en el Panel Profesional
+
+Cuando llega en tiempo real una alerta **crítica**, el panel muestra una franja roja intermitente, hace sonar una sirena (se apaga sola al minuto o con «Silenciar alarma») y hace parpadear el título de la pestaña. Se puede activar o silenciar con el botón «Alarma». El navegador solo permite sonido después de un clic en la página.

@@ -19,39 +19,56 @@ async function permissionState() {
   }
 }
 
-/** Pide la posicion al navegador. Nunca lanza: devuelve null si no hay permiso, hay error o se agota el tiempo. */
-function readPosition({ timeoutMs, maximumAge }) {
+/**
+ * Lee la posicion con watchPosition durante unos segundos y se queda con la lectura MAS PRECISA.
+ * El primer dato que entrega un navegador suele ser aproximado (por Wi-Fi o IP) y el GPS real tarda unos
+ * segundos en afinarse; por eso no basta una sola lectura. Termina antes si alcanza una precision
+ * suficiente. Nunca lanza: devuelve null si no hay permiso, hay error o no llega ninguna lectura.
+ * maximumAge = 0: nunca se reutiliza una posicion vieja guardada por el navegador.
+ */
+function readBestPosition({ timeoutMs, goodEnoughMeters = 50 }) {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), timeoutMs + 1000);
-    navigator.geolocation.getCurrentPosition(
+    let best = null;
+    let finished = false;
+    let watchId = null;
+    let timer = null;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      resolve(best);
+    };
+    timer = setTimeout(finish, timeoutMs);
+    watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        clearTimeout(timer);
         const { latitude, longitude, accuracy } = pos.coords;
-        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return resolve(null);
-        return resolve({
-          lat: Number(latitude.toFixed(6)),
-          lng: Number(longitude.toFixed(6)),
-          ...(Number.isFinite(accuracy) ? { accuracy: Math.round(accuracy) } : {}),
-        });
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+        const acc = Number.isFinite(accuracy) ? accuracy : Infinity;
+        if (!best || acc < (best.accuracy ?? Infinity)) {
+          best = {
+            lat: Number(latitude.toFixed(6)),
+            lng: Number(longitude.toFixed(6)),
+            ...(Number.isFinite(accuracy) ? { accuracy: Math.round(accuracy) } : {}),
+          };
+        }
+        if (acc <= goodEnoughMeters) finish();
       },
-      () => {
-        clearTimeout(timer);
-        resolve(null);
-      },
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge }
+      () => finish(),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: timeoutMs }
     );
   });
 }
 
 /**
  * Ubicacion actual para adjuntar a una alerta, o null. Solo si el permiso ya fue concedido
- * (o el navegador no informa su estado). Espera como maximo ~6 s para no retrasar la alerta.
+ * (o el navegador no informa su estado). Espera como maximo ~6 s (menos si el GPS ya es preciso) para no retrasar la alerta.
  */
 export async function getAlertLocation({ timeoutMs = 6000 } = {}) {
   if (!hasGeolocation()) return null;
   const state = await permissionState();
   if (state === 'denied' || state === 'prompt') return null;
-  return readPosition({ timeoutMs, maximumAge: 15_000 });
+  return readBestPosition({ timeoutMs });
 }
 
 /**
@@ -62,6 +79,6 @@ export async function getAlertLocation({ timeoutMs = 6000 } = {}) {
 export function primeLocationPermission() {
   if (!hasGeolocation()) return;
   permissionState()
-    .then((state) => (state === 'granted' || state === 'denied' ? null : readPosition({ timeoutMs: 20_000, maximumAge: 600_000 })))
+    .then((state) => (state === 'granted' || state === 'denied' ? null : readBestPosition({ timeoutMs: 20_000 })))
     .catch(() => {});
 }

@@ -28,6 +28,26 @@ const TWILIO_ERRORS = {
   21614: 'el numero del contacto no puede recibir SMS',
 };
 
+/** Precision del GPS en metros (numero entero) o null si no viene o no es valida. */
+export function accuracyMeters(location) {
+  const a = Number(location?.accuracy);
+  return Number.isFinite(a) && a >= 0 ? Math.round(a) : null;
+}
+
+/**
+ * Imagen de mapa (OpenStreetMap, servicio comunitario gratuito) centrada en las coordenadas, con un marcador.
+ * Igual que mapsLink: solo se arma con numeros ya validados. El zoom se aleja cuando la precision es baja.
+ */
+export function staticMapUrl(location) {
+  const lat = Number(location?.lat);
+  const lng = Number(location?.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  const acc = accuracyMeters(location);
+  const zoom = acc === null || acc <= 300 ? 16 : acc <= 1000 ? 15 : acc <= 3000 ? 13 : 12;
+  const c = `${lat.toFixed(5)},${lng.toFixed(5)}`;
+  return `https://staticmap.openstreetmap.de/staticmap.php?center=${c}&zoom=${zoom}&size=560x280&maptype=mapnik&markers=${c},red-pushpin`;
+}
+
 /**
  * Avisa al contacto de emergencia por SMS. Dos formas de envio (se usa la primera que este configurada):
  *   1) pasarela propia (celular Android con "SMS Gateway for Android"): SMS_GATEWAY_URL/USER/PASS
