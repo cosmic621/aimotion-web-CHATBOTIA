@@ -14,7 +14,7 @@ GRANT UPDATE (password_hash, status, sessions_valid_after) ON professionals TO a
 
 GRANT SELECT, INSERT, DELETE ON users TO aimotion_app;
 GRANT UPDATE (role, status, password_hash, sessions_valid_after) ON users TO aimotion_app;
-GRANT UPDATE (emergency_contact_name, emergency_contact_phone, emergency_contact_relation, contact_consent_at) ON users TO aimotion_app;
+GRANT UPDATE (emergency_contact_name, emergency_contact_phone, emergency_contact_relation, emergency_contact_email, contact_consent_at) ON users TO aimotion_app;
 
 GRANT SELECT, INSERT ON alerts TO aimotion_app;
 GRANT UPDATE (email_sent, email_reason, sms_sent, sms_reason, contact_sms_sent, contact_sms_reason, contact_notified_at,

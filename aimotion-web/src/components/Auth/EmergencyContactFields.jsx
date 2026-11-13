@@ -6,7 +6,7 @@ const inputClass =
 /**
  * Campos del contacto de emergencia + consentimiento explicito. Se usa al
  * crear la cuenta y al editar el contacto despues. "value" es un objeto
- * { name, phone, relation, consent }.
+ * { name, phone, relation, email, consent }.
  */
 export default function EmergencyContactFields({ value, onChange }) {
   const set = (field) => (e) => onChange({ ...value, [field]: e.target.value });
@@ -16,7 +16,7 @@ export default function EmergencyContactFields({ value, onChange }) {
       <legend className="px-2 text-xs font-bold text-brand-700">Contacto de emergencia</legend>
       <p className="text-xs text-gray-500">
         Una persona de confianza (papá, mamá, acudiente, pareja, amistad). Si el sistema detecta una
-        situación de riesgo crítico, le enviaremos un SMS breve para que pueda comunicarse contigo.
+        situación de riesgo crítico, le enviaremos un aviso breve (SMS y, si lo indicas, también un correo) para que pueda comunicarse contigo.
       </p>
       <input value={value.name} onChange={set('name')} placeholder="Nombre de esa persona" required className={inputClass} />
       <input
@@ -25,6 +25,14 @@ export default function EmergencyContactFields({ value, onChange }) {
         placeholder="Celular (ej. 3001234567)"
         required
         inputMode="tel"
+        className={inputClass}
+      />
+      <input
+        type="email"
+        value={value.email || ''}
+        onChange={set('email')}
+        placeholder="Correo de esa persona (opcional, recomendado)"
+        autoComplete="off"
         className={inputClass}
       />
       <input
@@ -43,9 +51,9 @@ export default function EmergencyContactFields({ value, onChange }) {
           className="mt-0.5 accent-brand-600"
         />
         <span>
-          Autorizo que AIMotion envíe un SMS breve a este contacto si detecta una situación de riesgo
-          crítico para mí. El mensaje <strong>no incluye detalles de mi conversación</strong>. Si le doy
-          permiso a mi navegador, el SMS incluirá un enlace con <strong>mi ubicación en ese momento</strong>
+          Autorizo que AIMotion envíe un aviso breve (SMS y/o correo) a este contacto si detecta una
+          situación de riesgo crítico para mí. El mensaje <strong>no incluye detalles de mi conversación</strong>.
+          Si le doy permiso a mi navegador, incluirá un enlace con <strong>mi ubicación en ese momento</strong>
           (no se guarda).
         </span>
       </label>
@@ -53,4 +61,4 @@ export default function EmergencyContactFields({ value, onChange }) {
   );
 }
 
-export const EMPTY_CONTACT = { name: '', phone: '', relation: '', consent: false };
+export const EMPTY_CONTACT = { name: '', phone: '', relation: '', email: '', consent: false };

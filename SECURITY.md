@@ -137,3 +137,9 @@ Las sesiones anteriores dejan de valer: hay que volver a iniciar sesión.
 - La ubicación la da **el navegador y solo si la persona acepta su ventana de permiso** (no se deduce por IP). Se pide al registrarse o al guardar el contacto, nunca en plena crisis; si el permiso no está concedido, el SMS sale igual, sin enlace.
 - El servidor **no la guarda ni la devuelve**: se usa solo para armar el enlace. El enlace se construye únicamente con coordenadas numéricas validadas (rangos de latitud/longitud), nunca con texto del usuario.
 - El consentimiento del contacto de emergencia ahora menciona la ubicación.
+
+## Correo del contacto de emergencia
+
+- El correo del contacto se guarda **cifrado** (AES-256-GCM, ligado a la fila) igual que su nombre, teléfono y parentesco, y es opcional.
+- El correo de aviso es mínimo: sin contenido de la conversación ni categoría de riesgo, con el nombre saneado, y solo con un enlace de mapa armado con coordenadas validadas. El destinatario sale del contacto guardado (nunca del cuerpo de la alerta) y se rechazan correos con comas, saltos de línea o símbolos (inyección de cabeceras).
+- Los errores de Brevo se registran solo con su código, porque su texto puede incluir el correo del contacto.

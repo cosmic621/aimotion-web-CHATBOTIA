@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import { v, validate } from '../security/validate.js';
 import { parsePagination, setPaginationHeaders } from '../security/pagination.js';
 import { anonCtx, patientCtx, professionalCtx, systemCtx } from '../db/context.js';
+import { sanitizeForLog } from '../security/sanitize.js';
 import { wrap, idParam, sessionIdSchema, paginationQuery } from './helpers.js';
 
 const CATEGORIES = ['ideacion_suicida', 'planeacion_suicida', 'autolesion', 'violencia_hacia_terceros', 'episodio_psicotico', 'crisis_panico_severa', 'desesperanza'];
@@ -36,7 +37,7 @@ function publicNotifications(n) {
   };
 }
 
-export function createAlertsRouter({ repos, services, realtime, alertLimiter, audit }) {
+export function createAlertsRouter({ repos, services, realtime, alertLimiter, audit, logger = console }) {
   const router = Router();
 
   /**
@@ -53,7 +54,16 @@ export function createAlertsRouter({ repos, services, realtime, alertLimiter, au
     if (last && Date.now() - new Date(last).getTime() < CONTACT_COOLDOWN_MS) {
       return { sent: false, alreadyNotified: true, reason: 'Ya se avisó al contacto hace poco' };
     }
-    return services.contactSms.send(user, { location: location || null });
+    // Se usan los canales que esten configurados (SMS y/o correo). Basta con que uno salga.
+    const smsOn = Boolean(services.contactSms) && (services.contactSms.configured?.() ?? true);
+    const mailOn = Boolean(services.contactEmail) && (services.contactEmail.configured?.() ?? true);
+    const attempts = [];
+    if (smsOn) attempts.push(['SMS', services.contactSms.send(user, { location: location || null })]);
+    if (mailOn) attempts.push(['Correo', services.contactEmail.send(user, { location: location || null })]);
+    if (!attempts.length) return { sent: false, reason: 'Aviso al contacto no configurado (ni SMS ni correo)' };
+    const results = await Promise.all(attempts.map(([, p]) => p));
+    if (results.some((r) => r.sent)) return { sent: true };
+    return { sent: false, reason: attempts.map(([label], i) => `${label}: ${results[i].reason}`).join(' · ').slice(0, 300) };
   }
 
   router.post('/', alertLimiter, validate({ body: createSchema }), wrap(async (req, res) => {
@@ -73,6 +83,10 @@ export function createAlertsRouter({ repos, services, realtime, alertLimiter, au
       ]);
       alert = (await repos.alerts.setNotificationResults(sys, alert.id, { emailResult, smsResult })) || alert;
       if (contactResult) {
+        // Si el SMS al contacto no salio, queda el motivo en los logs del servidor (sin datos personales).
+        if (!contactResult.sent && !contactResult.alreadyNotified) {
+          logger.warn?.('[aviso-contacto] no enviado:', sanitizeForLog(contactResult.reason || 'sin motivo'));
+        }
         alert = (await repos.alerts.setContactResult(sys, alert.id, contactResult)) || alert;
         alert.notifications.contactSms.alreadyNotified = Boolean(contactResult.alreadyNotified);
       }

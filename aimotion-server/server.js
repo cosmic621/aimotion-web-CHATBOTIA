@@ -17,6 +17,7 @@ import { createTokenService } from './src/auth/tokens.js';
 import { createEmailService } from './src/services/emailService.js';
 import { createProfessionalSmsService } from './src/services/smsService.js';
 import { createContactSmsService } from './src/services/contactSmsService.js';
+import { createContactEmailService } from './src/services/contactEmailService.js';
 import { setIo, emitToProfessionals } from './src/realtime.js';
 import { systemCtx } from './src/db/context.js';
 import { isSessionAllowed } from './src/domain/accountRules.js';
@@ -42,7 +43,8 @@ const hasher = createPasswordHasher({ bcrypt, cost: config.bcryptCost });
 const services = {
   email: createEmailService({ smtp: config.smtp }),
   proSms: createProfessionalSmsService({ twilioConfig: config.twilio }),
-  contactSms: createContactSmsService({ gateway: config.smsGateway }),
+  contactSms: createContactSmsService({ gateway: config.smsGateway, twilio: config.twilio }),
+  contactEmail: createContactEmailService({ brevo: config.brevo }),
 };
 const limiters = createLimiters();
 const loginGuard = createLoginGuard();
@@ -77,7 +79,7 @@ setIo(io);
 httpServer.listen(config.port, () => {
   console.log(`AIMotion server escuchando en el puerto ${config.port} (${config.env})`);
   console.log(`  HTTPS forzado: ${config.forceHttps ? 'sí' : 'no'} · cookies Secure: ${config.cookies.secure ? 'sí' : 'no'} · RLS en la BD: ${rls ? 'activo' : 'NO activo (npm run migrate:rls)'}`);
-  console.log(`  Email: ${services.email.configured() ? 'configurado' : 'no'} · SMS al contacto: ${services.contactSms.configured() ? 'configurado' : 'no'}`);
+  console.log(`  Email: ${services.email.configured() ? 'configurado' : 'no'} · SMS al contacto: ${services.contactSms.configured() ? 'configurado' : 'no'} · Correo al contacto: ${services.contactEmail.configured() ? 'configurado' : 'no'}`);
 });
 
 // 4. Cierre ordenado

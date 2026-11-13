@@ -62,7 +62,34 @@ describe('repos: cifrado de datos sensibles (en reposo)', () => {
       emergency_contact_relation: cipher.encrypt('mamá', 'users.emergency_contact_relation:u1'),
     }]);
     const u = await repos.users.findById(patientCtx({ id: 'u1' }), 'u1');
-    assert.deepEqual(u.emergencyContact, { name: 'Rosa', phone: '+573001234567', relation: 'mamá', consentAt: 'c' });
+    assert.deepEqual(u.emergencyContact, { name: 'Rosa', phone: '+573001234567', relation: 'mamá', email: null, consentAt: 'c' });
+  });
+  it('el correo del contacto también se guarda cifrado (al crear y al actualizar) y se descifra al leer', async () => {
+    db.next.push([{ id: 'u1', name: 'Ana', email: 'a@x.com', password_hash: 'h', created_at: 'x' }]);
+    await repos.users.create(systemCtx(), { id: 'u1', name: 'Ana', email: 'a@x.com', passwordHash: 'h', contact: { name: 'Rosa', phone: '+573001234567', relation: 'mamá', email: 'rosa@correo.com' } });
+    assert.ok(cipher.isEncrypted(last().params[8]));
+    assert.ok(!JSON.stringify(last().params).includes('rosa@correo.com'));
+    assert.match(last().sql, /emergency_contact_email/);
+
+    db.next.push([{ id: 'u1', name: 'Ana', email: 'a@x.com', password_hash: 'h', created_at: 'x' }]);
+    await repos.users.updateContact(patientCtx({ id: 'u1' }), 'u1', { name: 'Rosa', phone: '+573001234567', relation: 'mamá', email: 'rosa@correo.com' });
+    assert.match(last().sql, /emergency_contact_email = \$5/);
+    const stored = last().params[4];
+    assert.ok(cipher.isEncrypted(stored));
+    assert.equal(cipher.decrypt(stored, 'users.emergency_contact_email:u1'), 'rosa@correo.com');
+
+    db.next.push([{
+      id: 'u1', name: 'Ana', email: 'a@x.com', password_hash: 'h', created_at: 'x', contact_consent_at: 'c',
+      emergency_contact_name: cipher.encrypt('Rosa', 'users.emergency_contact_name:u1'),
+      emergency_contact_phone: cipher.encrypt('+573001234567', 'users.emergency_contact_phone:u1'),
+      emergency_contact_relation: cipher.encrypt('mamá', 'users.emergency_contact_relation:u1'),
+      emergency_contact_email: stored,
+    }]);
+    assert.equal((await repos.users.findById(patientCtx({ id: 'u1' }), 'u1')).emergencyContact.email, 'rosa@correo.com');
+  });
+  it('un contacto sin correo guarda NULL en esa columna', async () => {
+    await repos.users.updateContact(patientCtx({ id: 'u1' }), 'u1', { name: 'Rosa', phone: '+573001234567', relation: 'mamá' });
+    assert.equal(last().params[4], null);
   });
   it('usuario sin contacto → emergencyContact null', async () => {
     db.next.push([{ id: 'u1', name: 'Ana', email: 'a@x.com', password_hash: 'h', created_at: 'x', emergency_contact_phone: null }]);

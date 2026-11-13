@@ -81,7 +81,7 @@ export function createApp({ config, repos, db, tokens, hasher, services, limiter
 
   app.use('/api/auth', createAuthRouter({ repos, tokens, hasher, loginGuard, botGuard, loginLimiter: limiters.login, sessions, audit }));
   app.use('/api/patient-auth', createPatientAuthRouter({ repos, tokens, hasher, loginGuard, botGuard, registerLimiter: limiters.register, loginLimiter: limiters.login, sessions }));
-  app.use('/api/alerts', createAlertsRouter({ repos, services, realtime, alertLimiter: limiters.alerts, audit }));
+  app.use('/api/alerts', createAlertsRouter({ repos, services, realtime, alertLimiter: limiters.alerts, audit, logger }));
   app.use('/api/screenings', createScreeningsRouter({ repos, screeningLimiter: limiters.screenings, audit }));
   app.use('/api/chat', createChatRouter({ repos, chatLimiter: limiters.chat, audit }));
   app.use('/api/treatment-plans', createTreatmentPlansRouter({ repos, audit }));

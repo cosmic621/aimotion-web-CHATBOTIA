@@ -10,7 +10,7 @@ export default function EmergencyContactCard({ patient, onUpdated }) {
   const current = patient.emergencyContact;
   const [editing, setEditing] = useState(!current);
   const [form, setForm] = useState(
-    current ? { name: current.name, phone: current.phone, relation: current.relation, consent: false } : EMPTY_CONTACT
+    current ? { name: current.name, phone: current.phone, relation: current.relation, email: current.email || '', consent: false } : EMPTY_CONTACT
   );
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -24,6 +24,7 @@ export default function EmergencyContactCard({ patient, onUpdated }) {
         contactName: form.name,
         contactPhone: form.phone,
         contactRelation: form.relation,
+        contactEmail: form.email?.trim() || undefined,
         contactConsent: form.consent,
       });
       const session = getPatientSession();
@@ -49,9 +50,10 @@ export default function EmergencyContactCard({ patient, onUpdated }) {
         <div className="text-sm text-gray-600">
           <p>
             <strong>{current.name}</strong> ({current.relation}) — {current.phone}
+            {current.email ? ` · ${current.email}` : ''}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            Solo recibe un SMS breve si se detecta un riesgo crítico. No ve el contenido de tus conversaciones.
+            Solo recibe un aviso breve (SMS o correo) si se detecta un riesgo crítico. No ve el contenido de tus conversaciones.
           </p>
           <button onClick={() => setEditing(true)} className="text-brand-600 text-xs hover:underline mt-2">
             Cambiar contacto

@@ -215,3 +215,7 @@ $$;
 DROP TRIGGER IF EXISTS trg_users_anonymize_alerts ON users;
 CREATE TRIGGER trg_users_anonymize_alerts BEFORE DELETE ON users
   FOR EACH ROW EXECUTE FUNCTION anonymize_alerts_of_deleted_user();
+
+-- Correo del contacto de emergencia (opcional, cifrado como el resto del contacto): permite avisarle
+-- por correo ademas de (o en lugar de) SMS.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS emergency_contact_email TEXT;

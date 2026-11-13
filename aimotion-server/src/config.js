@@ -50,6 +50,8 @@ export function loadConfig(env = process.env) {
       from: env.ALERT_EMAIL_FROM || 'AIMotion Alertas <no-reply@aimotion.local>', to: list(env.ALERT_EMAIL_TO),
     },
     twilio: { accountSid: env.TWILIO_ACCOUNT_SID || '', authToken: env.TWILIO_AUTH_TOKEN || '', fromNumber: env.TWILIO_FROM_NUMBER || '', to: list(env.ALERT_SMS_TO) },
+    // Correo al contacto de emergencia por la API HTTP de Brevo (el plan gratuito de Render bloquea SMTP).
+    brevo: { apiKey: env.BREVO_API_KEY || '', senderEmail: env.BREVO_SENDER_EMAIL || '', senderName: env.BREVO_SENDER_NAME || 'AIMotion' },
     smsGateway: { url: env.SMS_GATEWAY_URL || '', username: env.SMS_GATEWAY_USER || '', password: env.SMS_GATEWAY_PASS || '' },
   };
   return { config, errors, warnings };
@@ -61,7 +63,9 @@ export function redactConfig(config) {
     env: config.env, port: config.port, corsOrigins: config.corsOrigins, forceHttps: config.forceHttps,
     cookies: { secure: config.cookies.secure, sameSite: config.cookies.sameSite },
     trustProxy: config.trustProxy, bcryptCost: config.bcryptCost, turnstile: Boolean(config.turnstileSecret),
+    contactEmailConfigured: Boolean(config.brevo.apiKey && config.brevo.senderEmail),
     emailConfigured: Boolean(config.smtp.host && config.smtp.user && config.smtp.pass && config.smtp.to.length),
-    contactSmsConfigured: Boolean(config.smsGateway.url && config.smsGateway.username && config.smsGateway.password),
+    contactSmsConfigured: Boolean(config.smsGateway.url && config.smsGateway.username && config.smsGateway.password)
+      || Boolean(config.twilio.accountSid && config.twilio.authToken && config.twilio.fromNumber),
   };
 }

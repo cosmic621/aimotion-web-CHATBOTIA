@@ -48,7 +48,7 @@ export default function RiskBanner({ category, notificationStatus, onContinue })
           <div className="flex items-start gap-3 p-4 rounded-2xl bg-brand-50 text-brand-800">
             <CheckCircle2 className="w-6 h-6 flex-shrink-0" />
             <p className="text-sm">
-              También le enviamos un SMS a tu contacto de emergencia para que pueda comunicarse contigo.
+              También avisamos a tu contacto de emergencia (por SMS o correo) para que pueda comunicarse contigo.
               No compartimos nada de lo que escribiste.
             </p>
           </div>

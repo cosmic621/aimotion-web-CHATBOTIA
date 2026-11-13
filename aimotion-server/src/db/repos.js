@@ -73,6 +73,7 @@ export function createRepos({ db, cipher }) {
             name: cipher.decrypt(r.emergency_contact_name, aad('users.emergency_contact_name', r.id)),
             phone: cipher.decrypt(r.emergency_contact_phone, aad('users.emergency_contact_phone', r.id)),
             relation: cipher.decrypt(r.emergency_contact_relation, aad('users.emergency_contact_relation', r.id)),
+            email: r.emergency_contact_email ? cipher.decrypt(r.emergency_contact_email, aad('users.emergency_contact_email', r.id)) : null,
             consentAt: r.contact_consent_at,
           }
         : null,
@@ -83,6 +84,7 @@ export function createRepos({ db, cipher }) {
     cipher.encrypt(c.phone, aad('users.emergency_contact_phone', id)),
     cipher.encrypt(c.relation, aad('users.emergency_contact_relation', id)),
   ];
+  const encEmail = (id, c) => (c?.email ? cipher.encrypt(c.email, aad('users.emergency_contact_email', id)) : null);
 
   const users = {
     async findByEmail(ctx, email) {
@@ -99,9 +101,9 @@ export function createRepos({ db, cipher }) {
       const { rows } = await q(
         ctx,
         `INSERT INTO users (id, name, email, password_hash, emergency_contact_name, emergency_contact_phone,
-           emergency_contact_relation, contact_consent_at, role)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $6::text IS NULL THEN NULL ELSE now() END, $8) RETURNING *`,
-        [id, name, String(email).toLowerCase(), passwordHash, n, p, r, role || 'USUARIO']
+           emergency_contact_relation, contact_consent_at, role, emergency_contact_email)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $6::text IS NULL THEN NULL ELSE now() END, $8, $9) RETURNING *`,
+        [id, name, String(email).toLowerCase(), passwordHash, n, p, r, role || 'USUARIO', encEmail(id, contact)]
       );
       return userFromRow(rows[0]);
     },
@@ -110,9 +112,9 @@ export function createRepos({ db, cipher }) {
       const { rows } = await q(
         ctx,
         `UPDATE users SET emergency_contact_name = $2, emergency_contact_phone = $3,
-           emergency_contact_relation = $4, contact_consent_at = now()
+           emergency_contact_relation = $4, emergency_contact_email = $5, contact_consent_at = now()
          WHERE id = $1 RETURNING *`,
-        [id, n, p, r]
+        [id, n, p, r, encEmail(id, contact)]
       );
       return userFromRow(rows[0]);
     },

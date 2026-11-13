@@ -202,6 +202,55 @@ describe('services/contactSms: SMS al contacto de emergencia', () => {
     await createContactSmsService({ gateway, fetchImpl: f2 }).send(user);
     assert.ok(!/maps\.google/.test(JSON.parse(f2.calls[0].opts.body).message));
   });
+  describe('con Twilio (sin celular Android)', () => {
+    const twilio = { accountSid: 'AC' + 'a'.repeat(32), authToken: 'token-secreto', fromNumber: '+15005550006' };
+    const bodyOf = (f) => Object.fromEntries(new URLSearchParams(f.calls[0].opts.body));
+
+    it('envía por la API de Twilio con el teléfono normalizado y el enlace de ubicación', async () => {
+      const f = okFetch();
+      const r = await createContactSmsService({ twilio, fetchImpl: f }).send(user, { location: { lat: 4.711, lng: -74.0721 } });
+      assert.deepEqual(r, { sent: true });
+      assert.equal(f.calls[0].url, `https://api.twilio.com/2010-04-01/Accounts/${twilio.accountSid}/Messages.json`);
+      assert.equal(f.calls[0].opts.headers.Authorization, `Basic ${Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString('base64')}`);
+      const b = bodyOf(f);
+      assert.equal(b.From, '+15005550006');
+      assert.match(b.To, /^\+57\d{10}$/);
+      assert.match(b.Body, /maps\.google\.com\/\?q=4\.71100,-74\.07210/);
+      assert.ok(!('MessagingServiceSid' in b));
+    });
+    it('si el remitente es un Messaging Service (MG...), usa MessagingServiceSid', async () => {
+      const f = okFetch();
+      await createContactSmsService({ twilio: { ...twilio, fromNumber: `MG${'b'.repeat(32)}` }, fetchImpl: f }).send(user);
+      const b = bodyOf(f);
+      assert.equal(b.MessagingServiceSid, `MG${'b'.repeat(32)}`);
+      assert.ok(!('From' in b));
+    });
+    it('un error de Twilio se explica con su código, SIN copiar el texto de Twilio (puede traer el teléfono)', async () => {
+      const f = async () => ({ ok: false, status: 400, json: async () => ({ code: 21608, message: 'The number +573001234567 is unverified' }) });
+      const r = await createContactSmsService({ twilio, fetchImpl: f }).send(user);
+      assert.equal(r.sent, false);
+      assert.match(r.reason, /Twilio respondió 400 \(código 21608: cuenta de prueba/);
+      assert.ok(!/\+57|3001234567/.test(r.reason));
+      assert.ok(!r.reason.includes(twilio.authToken));
+    });
+    it('un error sin cuerpo JSON no rompe', async () => {
+      const f = async () => ({ ok: false, status: 503, json: async () => { throw new Error('no json'); } });
+      assert.equal((await createContactSmsService({ twilio, fetchImpl: f }).send(user)).reason, 'Twilio respondió 503');
+    });
+    it('si hay pasarela Android Y Twilio, usa la pasarela; si falta todo, avisa', async () => {
+      const f = okFetch();
+      await createContactSmsService({ gateway, twilio, fetchImpl: f }).send(user);
+      assert.equal(f.calls[0].url, gateway.url);
+      assert.equal((await createContactSmsService({ twilio: { accountSid: 'AC1' }, gateway: {} }).send(user)).reason, 'Pasarela SMS no configurada');
+      assert.equal(createContactSmsService({ twilio }).configured(), true);
+    });
+    it('teléfono inválido: no llama a Twilio', async () => {
+      const f = okFetch();
+      const r = await createContactSmsService({ twilio, fetchImpl: f }).send({ ...user, emergencyContact: { phone: '123' } });
+      assert.equal(r.sent, false);
+      assert.equal(f.calls.length, 0);
+    });
+  });
   it('sin pasarela configurada, con teléfono inválido o URL rara: no envía', async () => {
     const f = okFetch();
     assert.equal((await createContactSmsService({ gateway: {}, fetchImpl: f }).send(user)).sent, false);

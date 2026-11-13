@@ -33,7 +33,7 @@ o conecta como superusuario. Para desarrollo rápido puedes usar la misma URL de
 | `npm run test-rls` | Verifica en tu BD real que RLS y los privilegios funcionan (incluye funcionario y admin) |
 | `npm run test-sms -- --phone=3001234567` | Prueba la pasarela SMS |
 | `npm run scan-secrets` | Busca secretos en los archivos versionados |
-| `npm test` | 257 pruebas unitarias + 36 de integración de seguridad (estas necesitan `npm install`) |
+| `npm test` | 272 pruebas unitarias + 39 de integración de seguridad (estas necesitan `npm install`) |
 | `npm run audit` | `npm audit` (severidad alta o crítica) |
 
 ## Variables de entorno (`.env.example` documenta cada una)
@@ -130,3 +130,21 @@ Cómo se aplican:
 - **Qué pasa al eliminar un usuario:** se borran su chat, tamizajes, planes y atenciones; sus **alertas de riesgo se conservan sin nombre ni vínculo** (registro de seguridad).
 - **Auditoría:** cada consulta de historial del funcionario y cada acción del admin queda en `audit_log` (las contraseñas nunca se registran).
 - El perfil **nunca** se acepta desde el cuerpo de una petición pública (el registro lo fija en `USUARIO`) y la base lo protege además con un trigger y RLS: nadie puede ascenderse ni cambiar su propio estado o contraseña por SQL.
+
+## SMS al contacto de emergencia: dos formas de envío
+
+Se usa la primera que esté configurada (variables de entorno del servidor):
+
+1. **Celular Android** con la app *SMS Gateway for Android*: `SMS_GATEWAY_URL`, `SMS_GATEWAY_USER`, `SMS_GATEWAY_PASS`.
+2. **Twilio** (nube; sirve sin Android): `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` (un número `+1…` o un *Messaging Service* que empieza por `MG`). Con una cuenta de prueba solo se puede enviar a números verificados en la consola de Twilio, y hay que habilitar Colombia en *Messaging → Settings → Geo permissions*.
+
+Si el SMS no sale, el motivo queda en `alerts.contact_sms_reason`, en los logs del servidor y en la tarjeta de la alerta del Panel Profesional.
+
+## Correo al contacto de emergencia (gratis)
+
+Además del SMS, si el contacto tiene un correo registrado, el aviso crítico le llega por correo con el mismo texto mínimo y, si la persona dio permiso, el enlace de ubicación. Basta con que uno de los dos canales salga.
+
+- Se envía por la **API HTTPS de Brevo** (plan gratuito: 300 correos al día). No se usa SMTP porque el plan gratuito de Render bloquea los puertos 25, 465 y 587.
+- Variables en el servidor: `BREVO_API_KEY` (empieza por `xkeysib-`), `BREVO_SENDER_EMAIL` (correo remitente **verificado en Brevo**) y, opcional, `BREVO_SENDER_NAME`.
+- Al actualizar una base existente, corre `npm run migrate` y `npm run setup-roles` (agregan la columna cifrada `emergency_contact_email`).
+- Si no sale, el motivo queda en `alerts.contact_sms_reason`, en los logs y en la tarjeta de la alerta del Panel Profesional (por ejemplo, `Correo: Brevo respondió 401 (unauthorized)`).

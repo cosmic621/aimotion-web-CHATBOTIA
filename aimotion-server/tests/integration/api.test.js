@@ -156,7 +156,7 @@ const cookieOf = (res) => (res.headers['set-cookie'] || []).map((c) => c.split('
 const humanForm = () => ({ website: '', formStartedAt: Date.now() - 5000 });
 
 describe('API (integración de seguridad)', { skip: !lib && 'dependencias no instaladas (npm install)' }, () => {
-  let server; let base; let store; let contactSent; let contactLocations; let limiters;
+  let server; let base; let store; let contactSent; let contactLocations; let contactEmailed; let smsResult; let limiters;
 
   before(async () => {
     const { config } = lib.loadConfig({
@@ -167,6 +167,8 @@ describe('API (integración de seguridad)', { skip: !lib && 'dependencias no ins
     store = made.store;
     contactSent = [];
     contactLocations = [];
+    contactEmailed = [];
+    smsResult = { sent: true };
     limiters = lib.createLimiters();
     const app = lib.createApp({
       config, repos: made.repos,
@@ -175,7 +177,8 @@ describe('API (integración de seguridad)', { skip: !lib && 'dependencias no ins
       hasher: { hash: async (p) => `h:${p}`, verify: async (p, h) => Boolean(h) && h === `h:${p}`, needsRehash: () => false },
       services: {
         email: { sendAlert: async () => ({ sent: false }) }, proSms: { sendAlert: async () => ({ sent: false }) },
-        contactSms: { send: async (user, opts) => { contactSent.push(user.id); contactLocations.push(opts?.location ?? null); return { sent: true }; } },
+        contactSms: { send: async (user, opts) => { contactSent.push(user.id); contactLocations.push(opts?.location ?? null); return smsResult; } },
+        contactEmail: { configured: () => true, send: async (user) => { contactEmailed.push(user.emergencyContact?.email || null); return user.emergencyContact?.email ? { sent: true } : { sent: false, reason: 'El contacto no tiene correo registrado' }; } },
       },
       limiters, loginGuard: lib.createLoginGuard(), realtime: { emit: () => {} }, logger: { error: () => {} },
     });
@@ -337,6 +340,39 @@ describe('API (integración de seguridad)', { skip: !lib && 'dependencias no ins
     assert.equal(second.json.notifications.contactSms.alreadyNotified, true);
   });
 
+  it('correo del contacto: se guarda al registrarse, se valida, y el aviso crítico también le llega por correo', async () => {
+    assert.equal((await registerPatient('correo0@x.test', { contactEmail: 'esto-no-es-un-correo' })).status, 400);
+    const reg = await registerPatient('correo1@x.test', { contactEmail: 'rosa@correo.com' });
+    assert.equal(reg.status, 201);
+    assert.equal(reg.json.user.emergencyContact.email, 'rosa@correo.com');
+    const before = contactEmailed.length;
+    const r = await request(base, 'POST', '/api/alerts', { cookie: cookieOf(reg), csrf: reg.json.csrfToken, body: { sessionId: 'sess-correo001', category: 'ideacion_suicida', severity: 'critico', excerpt: 'x' } });
+    assert.equal(r.status, 201);
+    assert.equal(contactEmailed.length, before + 1);
+    assert.equal(contactEmailed.at(-1), 'rosa@correo.com');
+  });
+
+  it('correo del contacto: si el SMS falla pero el correo sale, el aviso cuenta como enviado', async () => {
+    const reg = await registerPatient('correo2@x.test', { contactEmail: 'rosa2@correo.com' });
+    smsResult = { sent: false, reason: 'Pasarela SMS no configurada' };
+    try {
+      const r = await request(base, 'POST', '/api/alerts', { cookie: cookieOf(reg), csrf: reg.json.csrfToken, body: { sessionId: 'sess-correo002', category: 'ideacion_suicida', severity: 'critico', excerpt: 'x' } });
+      assert.equal(r.status, 201);
+      assert.equal(r.json.alert.notifications.contactSms.sent, true);
+    } finally {
+      smsResult = { sent: true };
+    }
+  });
+
+  it('correo del contacto: se puede agregar o cambiar después, y exige un correo válido', async () => {
+    const reg = await registerPatient('correo3@x.test');
+    const call = withContactSession(reg);
+    assert.equal((await call({ contactName: 'Rosa', contactPhone: '3001234567', contactRelation: 'mamá', contactConsent: true, contactEmail: 'mal correo' })).status, 400);
+    const ok = await call({ contactName: 'Rosa', contactPhone: '3001234567', contactRelation: 'mamá', contactConsent: true, contactEmail: 'nuevo@correo.com' });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.json.user.emergencyContact.email, 'nuevo@correo.com');
+  });
+
   it('ubicación: llega al SMS del contacto, pero no se guarda con la alerta', async () => {
     const reg = await registerPatient('ubicacion@x.test');
     const cookie = cookieOf(reg);
@@ -388,6 +424,7 @@ describe('API (integración de seguridad)', { skip: !lib && 'dependencias no ins
   // ------------------------------------------------------------------
   // Perfiles nuevos: FUNCIONARIO y ADMIN (control de cuentas)
   // ------------------------------------------------------------------
+  const withContactSession = (reg) => (body) => request(base, 'PATCH', '/api/patient-auth/contact', { cookie: cookieOf(reg), csrf: reg.json.csrfToken, body });
   const seedUser = (id, role = 'USUARIO') => {
     store.users.set(id, { id, name: `Nombre ${id}`, email: `${id}@x.test`, passwordHash: `h:${PATIENT_PASSWORD}`, role, status: 'activo', createdAt: new Date(), emergencyContact: null });
   };

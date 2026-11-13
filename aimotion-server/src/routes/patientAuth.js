@@ -11,6 +11,8 @@ const contactFields = {
   contactName: v.string({ min: 1, max: 100, label: 'El nombre del contacto de emergencia' }),
   contactPhone: v.string({ min: 1, max: 30, label: 'El número del contacto de emergencia' }),
   contactRelation: v.string({ min: 1, max: 60, label: 'El parentesco del contacto' }),
+  // Opcional: si lo hay, el aviso de emergencia tambien le llega por correo.
+  contactEmail: v.email({ label: 'El correo del contacto' }).optional().nullable(),
   contactConsent: v.literal(true, { message: 'Debes autorizar el aviso al contacto de emergencia para crear la cuenta' }),
 };
 
@@ -28,7 +30,7 @@ export function createPatientAuthRouter({ repos, tokens, hasher, loginGuard, bot
   function parseContact(b) {
     const phone = normalizePhone(b.contactPhone);
     if (!phone) return { error: 'El número del contacto no parece válido. Ejemplo: 3001234567 o +573001234567' };
-    return { contact: { name: b.contactName, phone, relation: b.contactRelation } };
+    return { contact: { name: b.contactName, phone, relation: b.contactRelation, email: b.contactEmail || null } };
   }
 
   router.post('/register', registerLimiter, validate({ body: registerSchema }), botGuard, wrap(async (req, res) => {

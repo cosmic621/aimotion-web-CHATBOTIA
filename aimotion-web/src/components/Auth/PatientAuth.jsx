@@ -33,6 +33,7 @@ export default function PatientAuth({ onSuccess, onDismiss, initialMode = 'regis
               contactName: contact.name,
               contactPhone: contact.phone,
               contactRelation: contact.relation,
+              contactEmail: contact.email?.trim() || undefined,
               contactConsent: contact.consent,
               website,
               formStartedAt: startedAt.current,

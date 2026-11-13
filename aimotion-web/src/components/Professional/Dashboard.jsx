@@ -191,7 +191,7 @@ export default function Dashboard() {
                   </p>
                   <p className="text-gray-700 mt-2 italic">"{alert.excerpt}"</p>
                   <p className="text-xs text-gray-400 mt-2">
-                    Email: {alert.notifications?.email?.sent ? 'enviado ✓' : 'no enviado'} · SMS: {alert.notifications?.sms?.sent ? 'enviado ✓' : 'no enviado'} · SMS a contacto de emergencia: {alert.notifications?.contactSms?.sent ? 'enviado ✓' : 'no enviado'}
+                    Email: {alert.notifications?.email?.sent ? 'enviado ✓' : 'no enviado'} · SMS: {alert.notifications?.sms?.sent ? 'enviado ✓' : 'no enviado'} · Aviso al contacto de emergencia (SMS/correo): {alert.notifications?.contactSms?.sent ? 'enviado ✓' : `no enviado${alert.notifications?.contactSms?.reason ? ` (${alert.notifications.contactSms.reason})` : ''}`}
                   </p>
                   {alert.status === 'revisado' && alert.reviewerNote && (
                     <p className="text-xs text-brand-700 mt-1">Nota: {alert.reviewerNote}</p>
