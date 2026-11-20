@@ -146,19 +146,18 @@ export default function ChatAssistant() {
         />
       ) : (
         <div
-          className="bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-fade-in-up"
-          style={{ height: 'calc(100vh - 180px)', minHeight: '480px' }}
+          className="chat-card bg-white rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-fade-in-up"
         >
-          <div className="flex-shrink-0 bg-gradient-to-r from-brand-700 via-brand-600 to-brand-700 text-white p-6 border-b-4 border-gold-400">
-            <div className="flex items-center space-x-4">
-              <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center flex-shrink-0">
-                <Heart className="w-8 h-8 text-brand-600" />
+          <div className="flex-shrink-0 bg-gradient-to-r from-brand-700 via-brand-600 to-brand-700 text-white px-4 py-3 sm:p-6 border-b-4 border-gold-400">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="w-10 h-10 sm:w-16 sm:h-16 bg-white rounded-full flex items-center justify-center flex-shrink-0">
+                <Heart className="w-5 h-5 sm:w-8 sm:h-8 text-brand-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <h2 className="text-2xl font-bold">Asistente de Apoyo y Tamizaje</h2>
-                <p className="text-brand-100 flex items-center gap-2 text-sm">
-                  <span className="w-2 h-2 bg-gold-400 rounded-full animate-pulse"></span>
-                  No diagnostica · Supervisado por un profesional
+                <h2 className="text-base sm:text-2xl font-bold leading-tight">Asistente de Apoyo y Tamizaje</h2>
+                <p className="text-brand-100 flex items-start sm:items-center gap-2 text-xs sm:text-sm mt-0.5">
+                  <span className="w-2 h-2 mt-1 sm:mt-0 bg-gold-400 rounded-full animate-pulse flex-shrink-0"></span>
+                  <span>No diagnostica · Supervisado por un profesional</span>
                 </p>
               </div>
               <div className="hidden md:flex items-center gap-4 text-sm">
@@ -185,6 +184,25 @@ export default function ChatAssistant() {
                 )}
               </div>
             </div>
+            <div className="md:hidden flex items-center gap-2 mt-3 text-xs">
+              <button
+                onClick={() => setShowAuthPanel((v) => !v)}
+                className="flex items-center gap-1.5 bg-white/20 px-3 py-1.5 rounded-full active:bg-white/30 min-w-0"
+              >
+                <UserCircle2 className="w-4 h-4 flex-shrink-0" />
+                <span className="truncate">{patient ? patient.name : 'Guardar historial'}</span>
+              </button>
+              {patient && (
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-1.5 bg-white/20 px-3 py-1.5 rounded-full active:bg-white/30"
+                  aria-label="Cerrar sesión"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Salir</span>
+                </button>
+              )}
+            </div>
           </div>
 
           {showAuthPanel && !patient && (
@@ -199,28 +217,28 @@ export default function ChatAssistant() {
             </div>
           )}
 
-          <div className="flex-1 min-h-0 overflow-y-auto p-8 space-y-6 bg-gradient-to-b from-brand-50/30 to-celeste-50/30">
+          <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-8 space-y-4 sm:space-y-6 bg-gradient-to-b from-brand-50/30 to-celeste-50/30">
             {messages.map((msg, idx) => (
               <div
                 key={idx}
                 className={`flex animate-message-in ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 {msg.type === 'bot' && (
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-r from-brand-600 to-brand-500 flex items-center justify-center mr-3 flex-shrink-0">
-                    <Heart className="w-5 h-5 text-white" />
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-r from-brand-600 to-brand-500 flex items-center justify-center mr-2 sm:mr-3 flex-shrink-0">
+                    <Heart className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                   </div>
                 )}
                 <div
-                  className={`max-w-2xl p-5 rounded-3xl shadow-lg ${
+                  className={`max-w-[80%] sm:max-w-2xl min-w-0 break-words p-3 sm:p-5 rounded-2xl sm:rounded-3xl shadow-lg ${
                     msg.type === 'user'
                       ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-br-none'
                       : 'bg-white text-gray-800 rounded-bl-none border-l-4 border-brand-600'
                   }`}
                 >
-                  <p className="text-base leading-relaxed whitespace-pre-line">{msg.text}</p>
+                  <p className="text-[15px] sm:text-base leading-relaxed whitespace-pre-line">{msg.text}</p>
                 </div>
                 {msg.type === 'user' && (
-                  <div className="w-10 h-10 rounded-full bg-gold-400 flex items-center justify-center ml-3 flex-shrink-0">
+                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gold-400 flex items-center justify-center ml-2 sm:ml-3 flex-shrink-0">
                     <span className="text-brand-800 font-bold">{userName.charAt(0) || '💚'}</span>
                   </div>
                 )}
@@ -229,10 +247,10 @@ export default function ChatAssistant() {
 
             {isTyping && (
               <div className="flex justify-start animate-message-in">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-r from-brand-600 to-brand-500 flex items-center justify-center mr-3">
-                  <Heart className="w-5 h-5 text-white" />
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-r from-brand-600 to-brand-500 flex items-center justify-center mr-2 sm:mr-3 flex-shrink-0">
+                  <Heart className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 </div>
-                <div className="bg-white p-5 rounded-3xl rounded-bl-none shadow-lg">
+                <div className="bg-white p-3 sm:p-5 rounded-2xl sm:rounded-3xl rounded-bl-none shadow-lg">
                   <div className="flex space-x-2">
                     <div className="w-3 h-3 bg-brand-400 rounded-full animate-bounce"></div>
                     <div className="w-3 h-3 bg-celeste-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
@@ -244,26 +262,27 @@ export default function ChatAssistant() {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="flex-shrink-0 p-6 bg-white border-t-2 border-brand-100">
-            <div className="flex space-x-3">
+          <div className="flex-shrink-0 p-3 sm:p-6 bg-white border-t-2 border-brand-100 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <div className="flex items-center gap-2 sm:gap-3">
               <input
                 type="text"
                 maxLength={2000}
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
-                placeholder="Escribe lo que sientes... no hay respuestas incorrectas 💚"
-                className="flex-1 border-2 border-brand-200 rounded-full px-6 py-4 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:border-transparent text-lg"
+                placeholder="Escribe lo que sientes... 💚"
+                className="flex-1 min-w-0 border-2 border-brand-200 rounded-full px-4 py-3 sm:px-6 sm:py-4 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:border-transparent text-base sm:text-lg"
               />
               <button
                 onClick={handleSendMessage}
-                className="bg-gradient-to-r from-brand-600 to-brand-500 text-white px-8 py-4 rounded-full hover:shadow-xl transition transform hover:scale-105 flex items-center gap-2 font-semibold"
+                aria-label="Enviar mensaje"
+                className="flex-shrink-0 bg-gradient-to-r from-brand-600 to-brand-500 text-white w-12 h-12 sm:w-auto sm:h-auto sm:px-8 sm:py-4 rounded-full hover:shadow-xl transition sm:hover:scale-105 flex items-center justify-center gap-2 font-semibold"
               >
                 <Send className="w-5 h-5" />
                 <span className="hidden sm:inline">Enviar</span>
               </button>
             </div>
-            <p className="text-sm text-gray-500 mt-3 text-center">
+            <p className="text-xs sm:text-sm text-gray-500 mt-2 sm:mt-3 text-center">
               Este espacio es confidencial y puede ser revisado por el equipo profesional a cargo 🔒
             </p>
           </div>

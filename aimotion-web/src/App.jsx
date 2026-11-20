@@ -32,7 +32,7 @@ const AIMOTIONWebsite = () => {
     <div className="min-h-screen bg-gradient-to-br from-brand-50 via-white to-celeste-50">
       <Header activeSection={activeSection} onNavigate={setActiveSection} />
 
-      <div className="container mx-auto px-6 py-8">
+      <div className="container mx-auto px-3 sm:px-6 py-4 sm:py-8">
         {activeSection === 'inicio' && <Home onNavigate={setActiveSection} />}
         {activeSection === 'nosotros' && <About />}
         {activeSection === 'tamizaje' && <ScreeningHub sessionId={sessionId} userName="" />}

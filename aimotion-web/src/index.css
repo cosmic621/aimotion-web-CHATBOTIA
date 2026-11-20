@@ -94,3 +94,18 @@
   --color-gray-800: #2a2a2a;
   --color-gray-900: #171717;
 }
+
+/* Tarjeta del chat: usa la altura REAL visible (dvh). En iPhone, 100vh incluye
+   el area tapada por las barras del navegador y empujaba el campo de texto. */
+.chat-card {
+  height: calc(100vh - 150px);
+  height: calc(100dvh - 150px);
+  min-height: 420px;
+}
+@media (min-width: 640px) {
+  .chat-card {
+    height: calc(100vh - 180px);
+    height: calc(100dvh - 180px);
+    min-height: 480px;
+  }
+}
